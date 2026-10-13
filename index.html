@@ -27,7 +27,7 @@
         <button class="icon-btn" type="button" data-open="help" aria-label="How to play">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7"/><circle cx="12" cy="17" r=".6" class="fill"/></svg>
         </button>
-        <button class="icon-btn" type="button" data-open="archive" aria-label="Past climbs">
+        <button class="icon-btn" type="button" data-open="archive" aria-label="Calendar of past climbs">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
         </button>
         <button class="icon-btn" type="button" data-open="stats" aria-label="Your stats">
@@ -48,7 +48,10 @@
     </section>
 
     <div class="play">
-      <p class="day-line" id="dayLine"></p>
+      <div class="day-row">
+        <p class="day-line" id="dayLine"></p>
+        <p class="timer" id="timer" hidden role="timer" aria-label="Time left for this climb"><span class="timer-num">6:00</span> left</p>
+      </div>
       <ol class="track" id="track" aria-label="Pitches"></ol>
       <div id="banner" class="banner" hidden></div>
       <main id="stage" class="stage"></main>
@@ -71,14 +74,15 @@
   <dialog id="help" class="sheet" aria-labelledby="helpTitle">
     <form method="dialog"><button class="close" aria-label="Close">×</button></form>
     <h2 id="helpTitle">How to climb</h2>
-    <p>One mountain a day, the same for everyone. It changes at midnight, Perth time.</p>
+    <p>One climb a day, the same mountain for everyone. A new one appears at midnight, Perth time.</p>
     <ol class="steps">
-      <li><strong>Find a word that fits between the clues.</strong> On pitches 1 to 4, type any word that joins them. <em>SUN</em> and <em>FIRE</em> both join <em>LIGHT</em> and <em>STONE</em>. There's no letter count and no single right answer.</li>
-      <li><strong>Fit and rarity decide your height.</strong> Linking every clue earns the whole pitch, up to 1,000 m. Linking one of two earns half. Rarer words climb higher: a common word keeps 60% of its height, a rare one all of it.</li>
-      <li><strong>Two tries per pitch.</strong> You keep the better one. The second try is worth 70%.</li>
-      <li><strong>Carry the rope.</strong> Our link word becomes the first clue of the next pitch.</li>
-      <li><strong>Name the summit word.</strong> Pitch 5 is an uncommon word. Its definition gets clearer after each miss. Three tries: 1,000, 700 or 400 m.</li>
+      <li><strong>Begin the climb.</strong> You have six minutes for five pitches: The Foothills, The Forest, The Frozen Ridge, The Storm Wall and The Summit. There's one climb a day and no restarts.</li>
+      <li><strong>Find a word that fits between the clues.</strong> <em>SUN</em> and <em>FIRE</em> both join <em>LIGHT</em> and <em>STONE</em>. There's no letter count.</li>
+      <li><strong>Every real word climbs.</strong> Linking every clue earns the most, up to 1,000 m, and rarer fits keep more of it. Linking one clue earns part. A word close to the best one earns 200 m, and any other real word 100 m. Misspelt words are refused without using a try.</li>
+      <li><strong>Two tries per pitch.</strong> The better one counts. The second is worth 70%.</li>
+      <li><strong>Name the summit word.</strong> An uncommon word. Its definition gets clearer after each miss.</li>
     </ol>
+    <p class="fine">The summit is 4,500 m, so it takes an exceptional climb. Most days end somewhere on the mountain, and that still counts for your streak.</p>
 
     <form id="tryForm" class="try-it" autocomplete="off">
       <p class="try-title"><strong>Try it.</strong> This doesn't touch today's climb.</p>
@@ -102,9 +106,8 @@
 
   <dialog id="archive" class="sheet" aria-labelledby="archiveTitle">
     <form method="dialog"><button class="close" aria-label="Close">×</button></form>
-    <h2 id="archiveTitle">Past climbs</h2>
-    <p class="fine">Replay any earlier mountain. Replays don't change your stats or streak.</p>
-    <ul id="archiveList" class="archive"></ul>
+    <h2 id="archiveTitle">Your calendar</h2>
+    <div id="archiveBody"></div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

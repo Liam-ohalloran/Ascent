@@ -45,6 +45,16 @@ export function drawMountain(svg) {
 
   el("path", { d: RIDGE, class: "rock" }, svg);
 
+  // The five themed zones, bottom to top: Foothills, Forest, Frozen Ridge,
+  // Storm Wall, Summit. Each zone spans one 1,000 m stretch of the route.
+  const zones = el("g", { "clip-path": "url(#mtnClip)", class: "zones" }, svg);
+  const edges = [214, ...ANCHORS.slice(1).map(([, y]) => y)];
+  for (let i = 0; i < 5; i++) {
+    const bottom = i === 0 ? 214 : edges[i] + 4;
+    const top = i === 4 ? 0 : edges[i + 1] + 4;
+    el("rect", { x: -400, y: top, width: 1200, height: bottom - top, class: `zone zone-${i}` }, zones);
+  }
+
   // Contour lines, like a topo map, clipped to the mountain.
   const contours = el("g", { "clip-path": "url(#mtnClip)", class: "contours" }, svg);
   for (let i = 1; i <= 9; i++) {

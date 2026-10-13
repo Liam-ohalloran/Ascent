@@ -6,14 +6,39 @@ A daily word climb. One mountain a day, the same for everyone, changing at midni
 
 ## How to play
 
-- **Pitches 1 to 4.** Type any word that fits between the clues (SUN + FIRE → LIGHT, or STONE). No letter count, no single right answer.
-- **Height = fit × rarity.** A pitch is worth up to 1,000 m. Each clue your word genuinely links earns its share. Rarer words keep more of it: a very common word keeps 60%, a rare one 100%.
-- **Two tries per pitch.** The better one counts. The second try is worth 70%. After a partial hold you can keep it and move on.
-- **The rope.** The intended link word becomes the first clue of the next pitch.
-- **Summit.** An uncommon word with three definitions, broad to clear. Exact word: 1,000 / 700 / 400 m. With the AI judge on, close guesses are flagged and the closest can earn up to 300 m.
-- **Maximum:** 5,000 m. Tiers every 1,000 m: Base camp, Treeline, Snowline, Ridge, High camp, and Summit (summit word plus at least 4,000 m).
+One climb a day, the same mountain for everyone. The game never ends, only the day's climb does.
 
-There is no hint button. It was removed at the owner's request.
+1. **Today's climb.** Open Ascent to see today's mountain and its five themed pitches: The Foothills, The Forest, The Frozen Ridge, The Storm Wall, The Summit.
+2. **Begin climb.** Starts a **6-minute** timer. There's one scored climb a day and no restarts.
+3. **Pitches 1 to 4.** Type any word that fits between the clues (SUN + FIRE → LIGHT, or STONE). No letter count. Two tries, the better one counts, and the second is worth 70%.
+4. **The summit word.** An uncommon word with three definitions, broad to clear: 1,000, 700 or 400 m.
+5. **Results.** These become the day's screen, with a countdown to the next mountain at midnight Perth time.
+
+### Height (deterministic: same puzzle + same word = same height)
+
+| Your word | Height, first try |
+|---|---|
+| Fits every clue | 600 to 1,000 m (rarer words keep more) |
+| Links some clues | that share of it, e.g. 300 to 500 m for one of two |
+| Close to the best word (compounds with it, or shares its root) | 200 m |
+| Any other real English word | 100 m |
+| Not a word we know (typo, gibberish) | refused, no try used |
+
+Summit-word misses earn 100 m, or 200 m if close. The **summit is 4,500 m**: finishing all five pitches with common words lands around 3,000 to 3,800 m, so reaching it takes rare, exact play. There is no hint button, removed at the owner's request.
+
+### Days, streaks and stats
+
+- **Reset:** midnight in Australia/Perth (UTC+8, no daylight saving), for every player. Day *n* is the *n*th Perth calendar day since 2026-10-13. A unit test walks 730 midnights to prove no day is skipped or repeated.
+- **Daily identifier:** the puzzle number, derived from the Perth date, so it's the same on every device. Puzzles loop once the list runs out.
+- **One attempt:** "Begin climb" saves the start time. The deadline is always start + 6 minutes (a stored deadline is never trusted), so refreshing can't reset it. Closing the page and coming back late ends the climb at its deadline. A finished day shows only its results. `?day=` links can't open a climb.
+- **Across midnight:** a climb under way keeps its 6 minutes and is saved to the day it began. The new mountain then appears automatically.
+- **Streak:** +1 for each Perth day whose climb is finished (all five pitches or the timer ran out). A day without one resets it. Revisiting results never adds to it.
+- **Stats:** current and longest streak, climbs begun and finished, summits, best and average height, average pitches, recent climbs, and a calendar of finished, summit, missed and unfinished days. Past days can be viewed, not replayed. Missed days can reveal their answers on request.
+- **Share:** `Ascent #n, name / Height / Pitches + colour row / Time / Summit / Streak / link`. No words or answers.
+
+### What the browser alone can and can't protect
+
+Everything above is enforced in the browser, so it stops refreshes, double submits, URL tricks and changed device clocks (time comes from the server's `Date` header). It **can't** stop someone who edits or clears their local storage, uses a private window, or plays on a second device. That would need a backend with accounts that signs attempts and stores results. It isn't built, since there's no leaderboard to protect. Stats don't sync between devices, but the save format is versioned so an account sync could be added later.
 
 ## Architecture
 
@@ -22,7 +47,7 @@ Static site (no build step, plain ES modules) on GitHub Pages and Vercel, plus o
 ```
 index.html               page shell, dialogs, labelled word field
 css/style.css            all styling: phone first, two columns from 900px, light and dark
-js/rules.js              every scoring rule and input normalisation (pure, unit tested)
+js/rules.js              every rule: themes, timer, height ladder, summit, input (pure, unit tested)
 js/daily.js              Perth date keys, server-time sync, puzzle selection
 js/puzzles.js            the daily puzzles, mountain names, validation
 js/game.js               game loop with explicit phases, rendering, input, dialogs
@@ -33,6 +58,7 @@ js/share.js              spoiler-free share text, share sheet or clipboard
 api/score.js             Vercel Function: AI judge (off until AI Gateway is active)
 data/links.json          generated: words that link each clue
 data/freq.json           generated: how common each word is
+data/words.txt           generated: 57,000 real words (typos are refused, real words earn a foothold)
 scripts/build_links.py   builds the two data files
 scripts/phrase_links.json  two-word phrases and excluded name fragments
 tests/unit/              node:test unit tests (rules, dates, storage, judge, API)
@@ -47,14 +73,9 @@ tests/e2e/journeys.py    Playwright journeys and layout checks
    - CORS allows only the game's own sites. Each IP gets 30 calls a minute. Errors return a plain code, and details go only to the server log.
 3. **Failures never cost a try.** If the word list or the judge can't be reached, the guess isn't stored, the word stays in the box, and the player is told to press Enter again.
 
-## Days, saving and streaks
+## Saving
 
-- **Day boundary:** midnight in Australia/Perth (UTC+8, no daylight saving), for every player wherever they are. Puzzle No. 1 is 2026-10-13.
-- **Clock:** the game reads the server's `Date` header from a small same-origin request, so changing the device clock doesn't unlock future puzzles. If that request fails, it falls back to the device clock. Future days can't be opened by URL.
-- **Rollover:** at Perth midnight an untouched or finished climb moves to the new mountain. A climb in progress stays on screen with a "new mountain is ready" banner. **A climb counts for stats only if it's finished on its own Perth day.** Finishing after midnight keeps it as a replay.
-- **Save:** `localStorage["ascent"]`, version 3. It is validated on load: a damaged game is dropped on its own and the player sees a notice. Older saves (`ascent:v1`, `ascent:v2`) are migrated with their results, streaks and tutorial flag, and left in place. If storage is blocked, the game runs in memory and says so. Other tabs' saves are picked up through the `storage` event.
-- **Stats:** derived from stored results (one per day, never overwritten). Includes streak, best streak, best and average height, summit rate and average tries. Replays never count.
-- **Note:** local storage can be edited by anyone, so none of this should back a competitive leaderboard.
+`localStorage["ascent"]`, version 3: the day's climb (`games`), when each climb began (`attempts`), and finished results (`results`, written once per day). It is validated on load. A damaged entry is dropped on its own and a notice is shown. Older saves (`ascent:v1`, `ascent:v2`) are migrated, keeping results and streaks, and left in place. If storage is blocked, the game runs in memory and says so. Other tabs' saves are picked up through the `storage` event.
 
 ## Adding puzzles
 
@@ -71,9 +92,9 @@ Puzzles loop once the list runs out. Each day maps by number, never by load orde
 ## Tests
 
 ```
-npm test            # 43 unit tests, no network
+npm test            # 57 unit tests, no network
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
-npm run test:e2e    # 107 browser checks: journeys, failures, refresh, rollover, layouts 320–1440, light/dark
+npm run test:e2e    # 134 browser checks: the full daily cycle, timer, refresh, rollover, calendar, layouts 320–1440, light/dark
 ```
 
 The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`.

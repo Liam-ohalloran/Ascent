@@ -14,8 +14,9 @@ const store = await import("../../js/stats.js");
 const linkStep = (points, done = true, word = "LIGHT") => ({
   guesses: [{ word, linked: points ? ["SUN", "FIRE"] : [], zipf: 5, points }], done, points,
 });
+const START = Date.parse("2026-10-13T04:00:00Z");
 const game = (overrides = {}) => ({
-  current: 5, done: true, metres: 0,
+  current: 5, done: true, metres: 0, startedAt: START, deadline: START + 360000, endedAt: START + 200000, endReason: "finished", rejected: 1,
   pitches: [linkStep(600), linkStep(700), linkStep(0), { ...linkStep(800), guesses: [{ word: "MATE", linked: ["A", "B", "C"], zipf: 4.5, points: 800 }] }],
   summit: { guesses: [{ word: "PETRICHOR", exact: true, close: 1 }], done: true, solved: true, points: 1000 },
   ...overrides,
@@ -48,7 +49,11 @@ test("progress survives a reload, and the total is recomputed from the steps", (
 test("v1 results, streaks and the tutorial flag carry over to the new save", () => {
   fresh({ "ascent:v1": JSON.stringify({ games: { 1: { old: "shape" } }, results: { 1: { metres: 3000, summit: true, tier: "Ridge" } }, seenHelp: true }) });
   assert.equal(store.seenHelp(), true);
-  assert.deepEqual(store.load().results[1], { metres: 3000, summit: true, tier: "Ridge" });
+  const r = store.load().results[1];
+  assert.equal(r.metres, 3000);
+  assert.equal(r.summitWord, true, "old 'summit' meant the summit word was found");
+  assert.equal(r.summit, false, "3,000 m is below the 4,500 m summit");
+  assert.equal(r.tier, "The Storm Wall", "3,000 m reaches the Storm Wall zone");
   assert.equal(store.getGame(1), null, "v1 games had a different shape and are dropped");
   assert.ok(localStorage.getItem("ascent:v1"), "the old save is left in place");
 });
@@ -89,14 +94,36 @@ test("validateGame rejects impossible states", () => {
   const badWord = game();
   badWord.pitches[0].guesses[0].word = "<img onerror=x>";
   assert.equal(store.validateGame(badWord), null);
-  const inProgress = store.validateGame(game({ current: 99, done: true, summit: { guesses: [], done: false, solved: false, points: 0 } }));
+  const inProgress = store.validateGame(game({ current: 99, done: true, endReason: null, summit: { guesses: [], done: false, solved: false, points: 0 } }));
   assert.equal(inProgress.current, 4, "current is derived from finished steps");
   assert.equal(inProgress.done, false);
+  const timedOut = store.validateGame(game({ endReason: "timeout", summit: { guesses: [], done: false, solved: false, points: 0 } }));
+  assert.equal(timedOut.done, true, "a timed-out climb stays over");
+  const tampered = store.validateGame(game({ deadline: START + 99999999 }));
+  assert.equal(tampered.deadline, START + 360000, "the deadline is always start + 6 minutes");
+});
+
+test("a climb can be begun once per day", () => {
+  assert.equal(store.recordAttempt(4, START), true);
+  assert.equal(store.recordAttempt(4, START + 5000), false);
+  assert.equal(store.load().attempts[4], START);
+});
+
+test("calendar status for each day", () => {
+  store.recordAttempt(2, START);
+  store.recordResult(3, { metres: 4600, pitches: 5, summitWord: true });
+  store.recordResult(4, { metres: 2000, pitches: 5 });
+  assert.equal(store.dayStatus(1, 5), "missed");
+  assert.equal(store.dayStatus(2, 5), "unfinished");
+  assert.equal(store.dayStatus(3, 5), "summit");
+  assert.equal(store.dayStatus(4, 5), "done");
+  assert.equal(store.dayStatus(5, 5), "today");
 });
 
 test("a result is recorded once per day and never overwritten", () => {
-  assert.equal(store.recordResult(5, { metres: 3000, summit: true, tier: "Ridge" }), true);
-  assert.equal(store.recordResult(5, { metres: 5000, summit: true, tier: "Summit" }), false);
+  assert.equal(store.recordResult(5, { metres: 3000, pitches: 5, time: 200, accepted: 6, rejected: 1, summitWord: true }), true);
+  assert.equal(store.recordResult(5, { metres: 5000, pitches: 5 }), false);
+  assert.equal(store.load().results[5].time, 200);
   assert.equal(store.load().results[5].metres, 3000);
   assert.equal(store.recordResult(6, { metres: "x" }), false, "invalid results are refused");
 });
@@ -108,8 +135,20 @@ test("streaks count consecutive days and handle gaps", () => {
   assert.equal(store.summary(7).streak, 2, "today not played yet keeps yesterday's streak");
   assert.equal(store.summary(8).streak, 0, "a missed day breaks it");
   assert.equal(store.summary(6).longest, 3);
-  assert.equal(store.summary(6).played, 5);
-  assert.equal(store.summary(6).summitRate, 100);
+  assert.equal(store.summary(6).completed, 5);
+  assert.equal(store.summary(6).summits, 0, "3,200 m isn't the summit");
+  assert.equal(store.summary(6).recent[0].n, 6, "most recent first");
+});
+
+test("attempted counts begun climbs, completed counts finished ones", () => {
+  store.recordAttempt(1, START);
+  store.recordAttempt(2, START);
+  store.recordResult(1, { metres: 4700, pitches: 5 });
+  const s = store.summary(2);
+  assert.equal(s.attempted, 2);
+  assert.equal(s.completed, 1);
+  assert.equal(s.summits, 1);
+  assert.equal(s.avgPitches, 5);
 });
 
 test("blocked storage keeps the game playable in memory and says so", () => {

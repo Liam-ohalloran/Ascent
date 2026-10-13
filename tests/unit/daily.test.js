@@ -58,3 +58,16 @@ test("the carried rope word becomes the first clue of the next pitch", () => {
   }
   assert.equal(day.pitches[3].clues.length, 3);
 });
+
+test("no day is skipped or repeated across two years (Perth has no daylight saving)", () => {
+  // Walk every Perth midnight for two years, including the dates other
+  // countries change their clocks, and check the puzzle number rises by one.
+  let prev = d.todayNumber(new Date("2026-10-12T16:00:00Z"));
+  for (let day = 1; day <= 730; day++) {
+    const midnight = new Date(Date.parse("2026-10-12T16:00:00Z") + day * 86400000);
+    const justBefore = new Date(midnight.getTime() - 1000);
+    assert.equal(d.todayNumber(justBefore), prev, `just before midnight, day ${day}`);
+    assert.equal(d.todayNumber(midnight), prev + 1, `at midnight, day ${day}`);
+    prev++;
+  }
+});

@@ -1,13 +1,23 @@
-// Builds the spoiler-free share text: no words, just how each pitch went.
-// 🟩 fit every clue, 🟨 linked some, 🟥 no hold.
-const MARK = { clean: "🟩", part: "🟨", slip: "🟥" };
+// Builds the spoiler-free share text: no words, just how the climb went.
+// 🟩 fit every clue, 🟨 linked some, 🟧 a foothold or near miss, ⬛ not reached.
+import { formatClock, summitReached, MAX_TOTAL, CLIMB_SECONDS } from "./rules.js";
 
-export function shareText(n, name, game, tier, results) {
-  const marks = results.slice(0, 4).map((r) => MARK[r] || "⬜").join("");
-  const s = game.summit;
-  const summitLine = s.solved ? `🏔️ summit on clue ${s.guesses.length}` : "🌫️ summit in the clouds";
+const MARK = { fit: "🟩", partial: "🟨", near: "🟧", foothold: "🟧", none: "⬛" };
+
+export function shareText(n, name, game, results, streak) {
+  const marks = results.map((r) => MARK[r] || "⬛").join("");
+  const pitches = [...game.pitches, game.summit].filter((s) => s.done && s.guesses.length).length;
+  const time = game.startedAt ? Math.min(CLIMB_SECONDS, Math.round(((game.endedAt || game.deadline) - game.startedAt) / 1000)) : 0;
   const url = location.origin + location.pathname;
-  return `Ascent No. ${n}, ${name} ⛰️\n${game.metres.toLocaleString("en-AU")} m, ${tier}\n${marks} ${summitLine}\n${url}`;
+  return [
+    `Ascent #${n}, ${name} ⛰️`,
+    `Height: ${game.metres.toLocaleString("en-AU")} m / ${MAX_TOTAL.toLocaleString("en-AU")} m`,
+    `Pitches: ${pitches} / 5  ${marks}`,
+    `Time: ${formatClock(time)}`,
+    `Summit: ${summitReached(game.metres) ? "Reached 🏔️" : "Not reached"}`,
+    `Streak: ${streak} day${streak === 1 ? "" : "s"}`,
+    url,
+  ].join("\n");
 }
 
 // Native share sheet on phones, clipboard elsewhere.

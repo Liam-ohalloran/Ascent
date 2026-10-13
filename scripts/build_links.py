@@ -1,5 +1,6 @@
-"""Build data/links.json: for every clue in js/puzzles.js, the words that
-genuinely link to it, and data/freq.json: how common each of those words is.
+"""Build data/links.json: for every clue (and best word) in js/puzzles.js, the
+words that genuinely link to it; data/freq.json: how common each of those
+words is; and data/words.txt: every real word a player might type.
 Used by js/judge.js to score any guess.
 
 W links to clue C when CW or WC is a real word or compound in English
@@ -30,7 +31,8 @@ extra = json.loads((ROOT / "scripts/phrase_links.json").read_text())
 extra.pop("_note", None)
 EXCLUDE = set(extra.pop("_exclude", []))
 
-clues = sorted({c for d in days for p in d["pitches"] for c in p["clues"]})
+# Clues, plus each pitch's best word, so "close to the best word" can be scored.
+clues = sorted({c for d in days for p in d["pitches"] for c in p["clues"] + [p["answer"]]})
 vocab = [w for w in top_n_list("en", 50000)
          if w.isalpha() and w.isascii() and len(w) >= 3 and z(w, "en") >= MIN_WORD
          and w.upper() not in FRAGMENTS]
@@ -62,6 +64,28 @@ for i, d in enumerate(days, 1):
 
 out = {c: sorted(ws) for c, ws in links.items()}
 
+# Every real word a player might type, so any genuine word earns a foothold
+# and typos can be caught without using a try.
+known = sorted({w.upper() for w in top_n_list("en", 60000)
+                if w.isalpha() and w.isascii() and 2 <= len(w) <= 16 and z(w, "en") >= 2.0})
+known_set = set(known)
+for d in days:
+    for p in d["pitches"]:
+        known_set.update(p["clues"] + [p["answer"]])
+    known_set.add(d["summit"]["answer"])
+(ROOT / "data/words.txt").write_text("\n".join(sorted(known_set)) + "\n")
+
+# Every real word a player might type, so any genuine word earns a foothold
+# and typos can be caught without using a try.
+known_set = {w.upper() for w in top_n_list("en", 60000)
+             if w.isalpha() and w.isascii() and 2 <= len(w) <= 16 and z(w, "en") >= 2.0}
+for d in days:
+    for p in d["pitches"]:
+        known_set.update(p["clues"] + [p["answer"]])
+    known_set.add(d["summit"]["answer"])
+known_set |= set().union(*out.values())
+(ROOT / "data/words.txt").write_text("\n".join(sorted(known_set)) + "\n")
+
 # How common each scoring word is (Zipf scale: 7 = "the", 3 = rare-ish).
 # Rarer words that still link earn more height.
 words = set().union(*out.values())
@@ -76,7 +100,8 @@ freq = {w: base_freq(w) for w in sorted(words)}
 (ROOT / "data/freq.json").write_text(json.dumps(freq, separators=(",", ":")))
 path = ROOT / "data/links.json"
 path.write_text(json.dumps(out, separators=(",", ":")))
-print(f"{len(clues)} clues, {sum(map(len, out.values()))} links, {path.stat().st_size // 1024} KB")
+print(f"{len(clues)} clues, {sum(map(len, out.values()))} links, {path.stat().st_size // 1024} KB, "
+      f"{len(known_set)} known words, {(ROOT / 'data/words.txt').stat().st_size // 1024} KB")
 if missing:
     print("Intended answers the dictionary missed (added anyway):")
     print("\n".join("  " + m for m in missing))

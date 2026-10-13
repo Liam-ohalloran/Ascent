@@ -2,15 +2,16 @@
 //
 // Save format (version 3), under the key "ascent":
 //   { version: 3,
-//     games:   { [puzzleNo]: game },       one per mountain played, today or replayed
-//     results: { [puzzleNo]: result },     finished on its own day, used for stats
+//     games:    { [puzzleNo]: game },       the day's one climb, in progress or finished
+//     attempts: { [puzzleNo]: startedAt },  when each day's climb was begun
+//     results:  { [puzzleNo]: result },     the finished climb, written once, used for stats
 //     seenHelp: boolean }
 //
 // Older saves ("ascent:v1", "ascent:v2") are migrated on first load and left
 // in place untouched. Everything loaded is validated: a bad game is dropped on
 // its own instead of wiping the rest. Local storage can be edited by anyone,
 // so none of this is treated as trustworthy for a leaderboard.
-import { TIERS, tierFor, totalMetres, PITCHES, PITCH_TRIES, SUMMIT_TRIES, MAX_TOTAL } from "./rules.js";
+import { tierFor, totalMetres, summitReached, PITCHES, PITCH_TRIES, SUMMIT_TRIES, MAX_TOTAL, CLIMB_SECONDS } from "./rules.js";
 
 const KEY = "ascent";
 const VERSION = 3;
@@ -20,7 +21,7 @@ let cache = null;
 let persistent = true;
 export let notice = ""; // shown once if saving isn't possible or data was repaired
 
-const blank = () => ({ version: VERSION, games: {}, results: {}, seenHelp: false });
+const blank = () => ({ version: VERSION, games: {}, attempts: {}, results: {}, seenHelp: false });
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 const num = (x, lo, hi) => Number.isFinite(x) && x >= lo && x <= hi;
 const WORD = /^[A-Z]{2,20}$/;
@@ -48,11 +49,13 @@ function readJson(store, key) {
 function validLinkGuess(g, clueCount) {
   return isObj(g) && WORD.test(g.word) && Array.isArray(g.linked) &&
     g.linked.length <= clueCount && g.linked.every((c) => typeof c === "string") &&
-    num(g.points, 0, 1000) && (g.zipf === undefined || num(g.zipf, 0, 9));
+    num(g.points, 0, 1000) && (g.zipf === undefined || num(g.zipf, 0, 9)) &&
+    (g.near === undefined || typeof g.near === "boolean");
 }
 
 function validSummitGuess(g) {
-  return isObj(g) && WORD.test(g.word) && typeof g.exact === "boolean" && num(g.close ?? 0, 0, 1);
+  return isObj(g) && WORD.test(g.word) && typeof g.exact === "boolean" && num(g.close ?? 0, 0, 1) &&
+    (g.near === undefined || typeof g.near === "boolean");
 }
 
 // Returns a clean copy of a saved game, or null if it can't be trusted.
@@ -77,20 +80,42 @@ export function validateGame(g) {
   const current = steps.findIndex((x) => !x.done);
   const doneCount = current === -1 ? steps.length : current;
   if (steps.slice(doneCount).some((x) => x.done)) return null;
-  const game = { pitches, summit, current: doneCount, done: doneCount === steps.length, metres: 0 };
+  const time = (x) => (num(x, 1.5e12, 4e12) ? x : null);
+  const startedAt = time(g.startedAt);
+  const timedOut = g.endReason === "timeout";
+  const game = {
+    pitches, summit, current: doneCount, metres: 0,
+    startedAt,
+    deadline: startedAt ? startedAt + CLIMB_SECONDS * 1000 : null, // never trust a stored deadline
+    endedAt: time(g.endedAt),
+    endReason: doneCount === steps.length ? "finished" : timedOut ? "timeout" : null,
+    rejected: num(g.rejected, 0, 999) ? Math.floor(g.rejected) : 0,
+  };
+  game.done = game.endReason !== null;
   game.metres = totalMetres(game);
   return game;
 }
 
+// One finished climb. Older results (before the 4,500 m summit rule) stored
+// "summit" as "found the summit word", so that becomes summitWord.
 function validateResult(r) {
   if (!isObj(r) || !num(r.metres, 0, MAX_TOTAL)) return null;
-  const summit = r.summit === true;
+  const opt = (key, lo, hi) => (num(r[key], lo, hi) ? { [key]: Math.round(r[key]) } : {});
+  const isNew = num(r.pitches, 0, PITCHES + 1);
   return {
     metres: r.metres,
-    summit,
-    tier: TIERS.includes(r.tier) ? r.tier : tierFor(r.metres, summit),
-    ...(num(r.tries, 0, 20) ? { tries: r.tries } : {}),
-    ...(num(r.linked, 0, PITCHES) ? { linked: r.linked } : {}),
+    summit: summitReached(r.metres),
+    summitWord: isNew ? r.summitWord === true : r.summit === true,
+    tier: tierFor(r.metres),
+    ...opt("pitches", 0, PITCHES + 1),
+    ...opt("time", 0, 86400),
+    ...opt("tries", 0, 20),
+    ...opt("accepted", 0, 20),
+    ...opt("rejected", 0, 999),
+    ...opt("fits", 0, PITCHES),
+    ...opt("partials", 0, PITCHES),
+    ...opt("linked", 0, PITCHES),
+    ...(r.endReason === "timeout" || r.endReason === "finished" ? { endReason: r.endReason } : {}),
   };
 }
 
@@ -104,6 +129,10 @@ function sanitise(data) {
     const clean = Number.isInteger(n) && n > 0 ? validateGame(g) : null;
     if (clean) out.games[n] = clean;
     else dropped++;
+  }
+  for (const [k, t] of Object.entries(isObj(data.attempts) ? data.attempts : {})) {
+    const n = Number(k);
+    if (Number.isInteger(n) && n > 0 && num(t, 1.5e12, 4e12)) out.attempts[n] = t;
   }
   for (const [k, r] of Object.entries(isObj(data.results) ? data.results : {})) {
     const n = Number(k);
@@ -180,6 +209,15 @@ export function putGame(n, game) {
   write();
 }
 
+// Marks the day's climb as begun. Only the first call for a day counts.
+export function recordAttempt(n, startedAt) {
+  const data = load();
+  if (data.attempts[n]) return false;
+  data.attempts[n] = startedAt;
+  write();
+  return true;
+}
+
 // Only the mountain played on its own day counts toward stats and streaks,
 // and only once: a result is never overwritten.
 export function recordResult(n, result) {
@@ -200,23 +238,34 @@ export function markHelpSeen() {
 
 export { tierFor };
 
+// How a day looks in the calendar.
+export function dayStatus(n, today) {
+  const data = load();
+  const r = data.results[n];
+  if (r) return r.summit ? "summit" : "done";
+  if (n === today) return data.attempts[n] ? "climbing" : "today";
+  return data.attempts[n] ? "unfinished" : "missed";
+}
+
+// Stats come only from stored results (one per day, written once), so
+// opening the results again never changes them.
+// Streak rule: a day counts when its climb is finished (all five pitches,
+// or the timer ran out) on that day. A day with no finished climb breaks it.
 export function summary(today) {
-  const results = load().results;
+  const data = load();
+  const results = data.results;
   const days = Object.keys(results).map(Number).filter((d) => d <= today).sort((a, b) => a - b);
-  const played = days.length;
+  const completed = days.length;
+  const attempted = new Set([...Object.keys(data.attempts).map(Number), ...days].filter((d) => d <= today)).size;
   const summits = days.filter((d) => results[d].summit).length;
   const total = days.reduce((s, d) => s + results[d].metres, 0);
   const best = days.reduce((m, d) => Math.max(m, results[d].metres), 0);
-  const withTries = days.filter((d) => results[d].tries != null);
-  const avgTries = withTries.length
-    ? withTries.reduce((s, d) => s + results[d].tries, 0) / withTries.length
-    : null;
+  const withPitches = days.filter((d) => results[d].pitches != null);
+  const avgPitches = withPitches.length
+    ? withPitches.reduce((s, d) => s + results[d].pitches, 0) / withPitches.length : null;
 
-  // Current streak: consecutive days ending today, or yesterday if today
-  // isn't finished yet. A streak is one finished climb per Perth day.
   let streak = 0;
   for (let d = results[today] ? today : today - 1; results[d]; d--) streak++;
-
   let longest = 0;
   let run = 0;
   days.forEach((d, i) => {
@@ -224,13 +273,10 @@ export function summary(today) {
     longest = Math.max(longest, run);
   });
 
-  const spread = Object.fromEntries(TIERS.map((t) => [t, 0]));
-  for (const d of days) spread[results[d].tier]++;
-
+  const recent = days.slice(-7).reverse().map((d) => ({ n: d, ...results[d] }));
   return {
-    played, summits, best, streak, longest, spread,
-    average: played ? Math.round(total / played) : 0,
-    summitRate: played ? Math.round((summits / played) * 100) : 0,
-    avgTries,
+    attempted, completed, summits, best, streak, longest, recent,
+    average: completed ? Math.round(total / completed) : 0,
+    avgPitches,
   };
 }

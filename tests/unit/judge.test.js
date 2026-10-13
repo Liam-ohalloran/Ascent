@@ -14,13 +14,14 @@ globalThis.fetch = async (url) => {
   if (String(url).startsWith("data/")) {
     if (failData) return { ok: false, status: 503 };
     const body = fs.readFileSync(new URL(String(url), root), "utf8");
-    return { ok: true, status: 200, json: async () => JSON.parse(body) };
+    return { ok: true, status: 200, json: async () => JSON.parse(body), text: async () => body };
   }
   throw new Error(`unexpected network call: ${url}`);
 };
 
 const judge = await import("../../js/judge.js");
-const { normaliseGuess, linkPoints } = await import("../../js/rules.js");
+const { normaliseGuess, guessPoints } = await import("../../js/rules.js");
+const linkPoints = (linked, total, tryIndex, zipf) => guessPoints({ linked, total, tryIndex, zipf });
 
 const link = async (word, clues, answer = "LIGHT") => (await judge.judgeLink(word, clues, answer)).linked;
 
@@ -36,10 +37,28 @@ test("partial links earn part of the pitch", async () => {
   assert.deepEqual(await link("YARD", ["GREEN", "BACK"], "ROOM"), ["BACK"]);
 });
 
-test("unrelated words and junk don't link", async () => {
-  assert.deepEqual(await link("CAT", ["SUN", "FIRE"]), []);
-  assert.deepEqual(await link("ZZZZ", ["SUN", "FIRE"]), []);
-  assert.deepEqual(await link("INA", ["BALL", "CAR"], "PARK"), [], "name fragments are excluded");
+test("unrelated real words don't link but still count as footholds", async () => {
+  const cat = await judge.judgeLink("CAT", ["SUN", "FIRE"], "LIGHT");
+  assert.deepEqual(cat.linked, []);
+  assert.equal(cat.near, false);
+  assert.ok(!cat.unknown);
+});
+
+test("gibberish and misspellings are refused, not scored", async () => {
+  assert.deepEqual(await judge.judgeLink("ZZZZQ", ["SUN", "FIRE"], "LIGHT"), { unknown: true });
+  assert.deepEqual(await judge.judgeLink("LIGTH", ["SUN", "FIRE"], "LIGHT"), { unknown: true });
+  assert.deepEqual(await judge.judgeSummit("PETRICOR", "PETRICHOR", "x"), { unknown: true });
+});
+
+test("close to the best word: compounds with it, or shares its root", async () => {
+  assert.equal((await judge.judgeLink("MOON", ["HOUSE", "BACK"], "LIGHT")).near, true, "moonlight");
+  assert.equal((await judge.judgeLink("LIGHTER", ["SUN", "FIRE"], "LIGHT")).near, true);
+  assert.equal((await judge.judgeLink("STONY", ["SUN", "FIRE"], "LIGHT")).near, true, "shares a root with STONE, a fit");
+  assert.equal((await judge.judgeLink("CAT", ["SUN", "FIRE"], "LIGHT")).near, false);
+});
+
+test("name fragments are excluded from links", async () => {
+  assert.deepEqual(await link("INA", ["BALL", "CAR"], "PARK"), []);
 });
 
 test("plurals count as the word, and don't score higher for being rarer", async () => {
@@ -78,7 +97,9 @@ test("with the AI judge switched off, no guess calls the API", async () => {
 test("summit: exact word or its plural wins, anything else doesn't", async () => {
   assert.equal((await judge.judgeSummit("PETRICHOR", "PETRICHOR", "x")).exact, true);
   assert.equal((await judge.judgeSummit("PETRICHORS", "PETRICHOR", "x")).exact, true);
-  assert.equal((await judge.judgeSummit("RAIN", "PETRICHOR", "x")).exact, false);
+  const rain = await judge.judgeSummit("RAIN", "PETRICHOR", "x");
+  assert.equal(rain.exact, false);
+  assert.equal(rain.near, false);
 });
 
 test("the rarest-fits reveal skips plural duplicates", async () => {

@@ -1,3 +1,5 @@
+import { sharesRoot } from "./rules.js";
+
 // Scores guesses.
 //
 // 1. Dictionary (data/links.json, data/freq.json): deterministic, instant,
@@ -31,8 +33,24 @@ function loadJson(name) {
   return cache[name];
 }
 
+// Every real word a player might type (data/words.txt, one per line).
+let wordsPromise;
+function loadWords() {
+  wordsPromise ||= fetch("data/words.txt")
+    .then((r) => {
+      if (!r.ok) throw new Error(`words.txt ${r.status}`);
+      return r.text();
+    })
+    .then((text) => new Set(text.split("\n").filter(Boolean)))
+    .catch((err) => {
+      wordsPromise = null;
+      throw err;
+    });
+  return wordsPromise;
+}
+
 export async function ready() {
-  await Promise.all([loadJson("links"), loadJson("freq")]);
+  await Promise.all([loadJson("links"), loadJson("freq"), loadWords()]);
 }
 
 // Plurals count as the same word: SPOTS links where SPOT does.
@@ -51,15 +69,20 @@ async function zipfOf(word) {
   return UNKNOWN_ZIPF;
 }
 
+// Every word that fits all the clues, rarest first, without plural duplicates.
+function fitsFor(links, freq, clues) {
+  const sets = clues.map((c) => new Set(links[c] || []));
+  return [...sets[0]]
+    .filter((w) => sets.every((s) => s.has(w)) && !clues.includes(w) &&
+      !forms(w).slice(1).some((single) => sets[0].has(single)))
+    .sort((a, b) => (freq[a] ?? 9) - (freq[b] ?? 9));
+}
+
 // The rarest words that link every clue, for the reveal after a pitch.
 export async function rarestLinks(clues, limit = 3) {
   try {
     const [links, freq] = await Promise.all([loadJson("links"), loadJson("freq")]);
-    const sets = clues.map((c) => new Set(links[c] || []));
-    const all = [...sets[0]].filter((w) =>
-      sets.every((s) => s.has(w)) && !clues.includes(w) &&
-      !forms(w).slice(1).some((single) => sets[0].has(single))); // skip plurals of listed words
-    return all.sort((a, b) => (freq[a] ?? 9) - (freq[b] ?? 9)).slice(0, limit);
+    return fitsFor(links, freq, clues).slice(0, limit);
   } catch {
     return [];
   }
@@ -81,37 +104,61 @@ async function callApi(body) {
   }
 }
 
-// Returns { linked: [clue...], zipf } or { error } if the guess couldn't be
-// judged (dictionary files or the AI judge unreachable).
+const dataError = () => ({ error: navigator.onLine === false ? "offline" : "data" });
+
+// "Close to the best word": it forms a compound with the best word
+// (MOON for LIGHT, moonlight) or shares a root with any word that fits
+// (LIGHTER, STONY).
+function isNear(word, links, freq, clues, answer) {
+  if (forms(word).some((w) => links[answer]?.includes(w))) return true;
+  const fits = new Set([answer, ...fitsFor(links, freq, clues)]);
+  for (const fit of fits) if (sharesRoot(word, fit)) return true;
+  return false;
+}
+
+// Returns one of:
+//   { linked: [clue...], zipf, near }   a judged guess (always earns height)
+//   { unknown: true }                   not a word we know: refused, no try used
+//   { error }                           couldn't judge right now: no try used
 export async function judgeLink(word, clues, answer) {
-  let links;
+  let links, freq, words;
   try {
-    links = await loadJson("links");
+    [links, freq, words] = await Promise.all([loadJson("links"), loadJson("freq"), loadWords()]);
   } catch {
-    return { error: navigator.onLine === false ? "offline" : "data" };
+    return dataError();
   }
   const zipf = await zipfOf(word).catch(() => UNKNOWN_ZIPF);
-  if (word === answer) return { linked: [...clues], zipf };
+  if (word === answer) return { linked: [...clues], zipf, near: true };
 
   const linked = clues.filter((c) => forms(word).some((w) => links[c]?.includes(w)));
   const unsure = clues.filter((c) => !linked.includes(c) && c !== word);
-  if (!unsure.length || !JUDGE_ENABLED) return { linked, zipf };
-
-  const res = await callApi({ kind: "link", word, clues: unsure });
-  if (res.error) return { error: res.error };
-  // Treat the reply as untrusted: only explicit true counts.
-  for (const c of unsure) if (res.links && res.links[c] === true) linked.push(c);
-  return { linked: clues.filter((c) => linked.includes(c)), zipf };
+  if (unsure.length && JUDGE_ENABLED) {
+    const res = await callApi({ kind: "link", word, clues: unsure });
+    if (res.error) return { error: res.error };
+    // Treat the reply as untrusted: only explicit true counts.
+    for (const c of unsure) if (res.links && res.links[c] === true) linked.push(c);
+  }
+  const known = linked.length > 0 || forms(word).some((w) => words.has(w));
+  if (!known) return { unknown: true };
+  return { linked: clues.filter((c) => linked.includes(c)), zipf, near: isNear(word, links, freq, clues, answer) };
 }
 
-// Returns { exact, close } (close 0 to 1) or { error }.
+// Returns { exact, near, close } (close 0 to 1), { unknown } or { error }.
 export async function judgeSummit(word, answer, definition) {
-  if (word === answer || forms(word).includes(answer)) return { exact: true, close: 1 };
-  if (!JUDGE_ENABLED) return { exact: false, close: 0 };
+  if (word === answer || forms(word).includes(answer)) return { exact: true, near: true, close: 1 };
+  let words;
+  try {
+    words = await loadWords();
+  } catch {
+    return dataError();
+  }
+  if (!forms(word).some((w) => words.has(w))) return { unknown: true };
+  const near = sharesRoot(word, answer);
+  if (!JUDGE_ENABLED) return { exact: false, near, close: 0 };
   const res = await callApi({ kind: "summit", word, answer, definition });
   if (res.error) return { error: res.error };
   const close = Number(res.close);
-  return { exact: false, close: Number.isFinite(close) ? Math.max(0, Math.min(1, close)) : 0 };
+  return { exact: false, near, close: Number.isFinite(close) ? Math.max(0, Math.min(1, close)) : 0 };
 }
 
 export const ERROR_TEXT = {
