@@ -6,21 +6,23 @@
 //
 // The browser saves its climb (the words played, and when) to its own row
 // in public.climbs. This function reads that row with the server key, judges
-// every word again with the game's own code (shared/, copied by
-// npm run build:function), and writes the result. Players can't write
+// every word again with the game's own code, and writes the result. Players can't write
 // results themselves (see supabase/migrations), so a height edited into a
 // browser save never reaches the account.
 //
-// The word data (about 0.6 MB) is read once per instance from the game's own
-// site, so the server always judges with the same files players load.
-// Deploy the site first, then this function (see README, Deployment).
+// The game's code (js/verify.js and what it imports) is bundled at deploy
+// time from this repository through jsDelivr, pinned to a commit (bump the
+// hash below when js/ changes, then redeploy). The word data (about 0.6 MB) is
+// read once per instance from the live site, so the server judges with the
+// same files players load. Deploy the site first, then this function
+// (see README, Deployment).
 //
 // Secrets: none in the repo. SUPABASE_URL, SUPABASE_ANON_KEY and
 // SUPABASE_SERVICE_ROLE_KEY are provided to every Supabase Edge Function.
 // ASCENT_DATA_URL (optional) points at another copy of data/.
 import { createClient } from "npm:@supabase/supabase-js@2.89.0";
-import { verifyClimb } from "./shared/verify.js";
-import { puzzleFor, todayNumber } from "./shared/daily.js";
+import { verifyClimb } from "https://cdn.jsdelivr.net/gh/Liam-ohalloran/ascent@8f226eb2ebc9a21356fd62626bf6e1991b4a64b0/js/verify.js";
+import { puzzleFor, todayNumber } from "https://cdn.jsdelivr.net/gh/Liam-ohalloran/ascent@8f226eb2ebc9a21356fd62626bf6e1991b4a64b0/js/daily.js";
 
 const DATA_URL = Deno.env.get("ASCENT_DATA_URL") ?? "https://liam-ohalloran.github.io/Ascent/data/";
 type Data = { assoc: unknown; freq: unknown; words: Set<string> };

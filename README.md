@@ -80,7 +80,7 @@ js/judge.js              dictionary judge, optional AI judge, error texts
 js/stats.js              versioned save, validation, migration, streaks, account merge
 js/account.js            optional accounts (Supabase: password or email link) and sync
 js/judge-core.js         the dictionary judge, shared by the browser and the server
-js/verify.js             the server's re-scoring of a finished climb
+js/verify.js             the server's re-scoring of a finished climb (used by supabase/functions/finish-climb)
 js/climb.js              mountain, rope, route labels, climber
 js/fx.js                 guess feedback animations (visual only)
 js/share.js              spoiler-free share text, share sheet or clipboard
@@ -140,7 +140,7 @@ Pushing to `main` deploys GitHub Pages (static files) and Vercel (static files p
 Accounts use Supabase project `smkxqwgikxpiaptyszrd` (Sydney). After the site is live:
 
 1. **Database rules:** apply `supabase/migrations/*.sql` (Supabase CLI `supabase db push`, or the SQL editor).
-2. **Edge Function:** `npm run build:function`, then `supabase functions deploy finish-climb`. It reads the word data from the live site, so deploy the site first.
+2. **Edge Function:** set the commit hash in `supabase/functions/finish-climb/index.ts` to the deployed commit (it imports `js/verify.js` and `js/daily.js` from that commit through jsDelivr), then `supabase functions deploy finish-climb`. It reads the word data from the live site, so deploy the site first. Redeploy it whenever `js/` changes.
 3. **Auth settings** (Dashboard, Authentication, URL Configuration): set **Site URL** to `https://liam-ohalloran.github.io/Ascent/` and add both sites to **Redirect URLs** (`https://liam-ohalloran.github.io/Ascent/**`, `https://ascent-ruddy-pi.vercel.app/**`). Without this, confirmation and sign-in links open `localhost:3000`.
 4. **Email:** Supabase's built-in email has a low hourly limit. For real players, add custom SMTP (Authentication, Emails).
 

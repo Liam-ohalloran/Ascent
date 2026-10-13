@@ -104,9 +104,8 @@ test("unfinished or damaged climbs aren't verified", () => {
   assert.equal(verifyClimb({ nonsense: true }, puzzle, data).error, "invalid");
 });
 
-test("the server copy of the shared code matches the game's", () => {
-  const dir = new URL("../../supabase/functions/finish-climb/shared/", import.meta.url);
-  for (const f of ["rules.js", "judge-core.js", "verify.js", "stats.js", "daily.js", "puzzles.js"]) {
-    assert.equal(fs.readFileSync(new URL(f, dir), "utf8"), fs.readFileSync(new URL(`../../js/${f}`, import.meta.url), "utf8"), `${f}: run npm run build:function`);
-  }
+test("the server function imports the game's own code, pinned to a commit", () => {
+  const fn = fs.readFileSync(new URL("../../supabase/functions/finish-climb/index.ts", import.meta.url), "utf8");
+  assert.match(fn, /cdn\.jsdelivr\.net\/gh\/Liam-ohalloran\/ascent@[0-9a-f]{40}\/js\/verify\.js/);
+  assert.match(fn, /cdn\.jsdelivr\.net\/gh\/Liam-ohalloran\/ascent@[0-9a-f]{40}\/js\/daily\.js/);
 });
