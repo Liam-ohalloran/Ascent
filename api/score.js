@@ -40,7 +40,10 @@ async function ask(req, system, user) {
     }),
     signal: AbortSignal.timeout(8000),
   });
-  if (!r.ok) throw new Error(`Gateway ${r.status}`);
+  if (!r.ok) {
+    const detail = (await r.text()).slice(0, 160).replace(/\s+/g, " ");
+    throw new Error(`Gateway ${r.status}: ${detail}`);
+  }
   const data = await r.json();
   const text = data.choices?.[0]?.message?.content || "";
   const json = text.match(/\{[\s\S]*\}/);
@@ -102,6 +105,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "kind must be link or summit" });
   } catch (err) {
     console.error("score failed:", err.message);
-    return res.status(503).json({ error: "Judge unavailable" });
+    // The reason is a status message, never a credential.
+    return res.status(503).json({ error: "Judge unavailable", reason: err.message.slice(0, 200) });
   }
 }
