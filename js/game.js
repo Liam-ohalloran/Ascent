@@ -17,6 +17,7 @@ import { syncClock, now, todayNumber, puzzleFor, msUntilTomorrow, keyForNumber, 
 import { drawMountain, updateClimb } from "./climb.js";
 import * as store from "./stats.js";
 import { shareText, share } from "./share.js";
+import * as account from "./account.js";
 import { judgeLink, judgeSummit, rarestLinks, ready as judgeReady, ERROR_TEXT } from "./judge.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -88,6 +89,88 @@ async function start() {
   loadToday();
   if (!store.seenHelp()) openDialog("help");
   scheduleRollover();
+  account.subscribe(accountChanged);
+  account.initAccount({ onSync: synced });
+}
+
+/* ---------- account ---------- */
+
+// The account brought in climbs from another device. Only redraw when nothing
+// is being typed, so a sync never interrupts a climb.
+function synced(days) {
+  if (days.includes(today) && !["playing", "judging", "feedback"].includes(phase)) loadToday();
+  if ($("#stats").open) renderStats();
+  if ($("#archive").open) renderArchive();
+  if (days.length > 1 || !days.includes(today)) toast("Your climbs are synced.");
+}
+
+function accountChanged(s) {
+  const btn = $("#accountBtn");
+  btn.classList.toggle("signed-in", s.status === "in");
+  btn.setAttribute("aria-label", s.status === "in" ? `Account, signed in as ${s.email}` : "Account, not signed in");
+  if ($("#account").open) renderAccount();
+}
+
+let linkSentTo = "";
+function renderAccount() {
+  const s = account.state;
+  const body = $("#accountBody");
+  const msg = s.message ? `<p class="account-msg" role="status">${esc(s.message)}</p>` : "";
+  if (s.status === "loading") {
+    body.innerHTML = `<p class="loading">Checking your account…</p>`;
+  } else if (s.status === "unavailable") {
+    body.innerHTML = `${msg}<p class="fine">You can keep playing. Nothing is lost.</p>`;
+  } else if (s.status === "in") {
+    const when = s.syncing ? "Syncing…" : s.lastSync
+      ? `Synced at ${new Date(s.lastSync).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}.` : "Not synced yet.";
+    body.innerHTML = `
+      <p>Signed in as <strong>${esc(s.email)}</strong>.</p>
+      <p class="fine">Your streak, stats and calendar are saved to your account. Sign in on another device with the same email to pick them up there. Each day's climb is still one attempt, across all your devices.</p>
+      ${msg}
+      <p class="fine" aria-live="polite">${when}</p>
+      <div class="account-actions">
+        <button class="btn ghost" type="button" id="syncBtn" ${s.syncing ? "disabled" : ""}>Sync now</button>
+        <button class="btn ghost" type="button" id="signOutBtn">Sign out</button>
+      </div>`;
+    $("#syncBtn").addEventListener("click", () => account.sync());
+    $("#signOutBtn").addEventListener("click", () => account.signOut());
+  } else if (linkSentTo) {
+    body.innerHTML = `
+      <p>Check your email. We sent a sign-in link to <strong>${esc(linkSentTo)}</strong>.</p>
+      <p class="fine">Open it on this device to sign in here. It can take a minute to arrive, and it may land in spam.</p>
+      <button class="btn ghost" type="button" id="otherEmailBtn">Use a different email</button>`;
+    $("#otherEmailBtn").addEventListener("click", () => { linkSentTo = ""; renderAccount(); });
+  } else {
+    body.innerHTML = `
+      <p>Sign in to keep your streak and stats on every device. It's optional, and there's no password: we email you a link.</p>
+      ${msg}
+      <form id="signInForm" class="sign-in" novalidate>
+        <label for="emailInput">Email</label>
+        <div class="try-row">
+          <input id="emailInput" class="try-input" type="email" autocomplete="email" inputmode="email" spellcheck="false" required placeholder="you@example.com">
+          <button class="btn primary" type="submit" id="sendLinkBtn">Email me a link</button>
+        </div>
+        <p id="signInMsg" class="form-msg" role="status" aria-live="polite"></p>
+      </form>
+      <p class="fine">Climbs you've already finished in this browser are added to your account when you sign in.</p>`;
+    $("#signInForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = $("#sendLinkBtn");
+      const email = $("#emailInput").value;
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      const res = await account.sendLink(email);
+      btn.disabled = false;
+      btn.textContent = "Email me a link";
+      if (res.error) {
+        $("#signInMsg").textContent = res.error;
+        $("#emailInput").focus();
+      } else {
+        linkSentTo = email.trim();
+        renderAccount();
+      }
+    });
+  }
 }
 
 function loadToday() {
@@ -703,6 +786,7 @@ function endClimb(reason, { fromStep = null, quiet = false } = {}) {
 
 function openDialog(id) {
   if (id === "stats") renderStats();
+  if (id === "account") renderAccount();
   if (id === "archive") renderArchive();
   const d = $("#" + id);
   if (!d.open) d.showModal();
@@ -756,9 +840,10 @@ function renderStats() {
     </dl>
     <p class="fine">${s.completed} climb${s.completed === 1 ? "" : "s"} finished of ${s.attempted} begun. Average ${fmt(s.average)} m${s.avgPitches != null ? `, ${s.avgPitches.toFixed(1)} pitches a climb` : ""}.</p>
     ${recent ? `<h3>Recent climbs</h3><ul class="recent">${recent}</ul>` : "<p>Finish today's climb to start your record.</p>"}
-    <p class="fine">A day counts toward your streak when its climb is finished that day, Perth time. Missing a day resets it. Stats are saved in this browser only, so they don't move between devices.</p>
+    <p class="fine">A day counts toward your streak when its climb is finished that day, Perth time. Missing a day resets it. ${account.signedIn() ? "Stats are saved to your account." : `Stats are saved in this browser only. <button class="link-btn" type="button" id="statsSignIn">Sign in</button> to keep them on every device.`}</p>
     <button class="btn ghost" type="button" id="calBtn">Open the calendar</button>`;
   $("#calBtn").addEventListener("click", () => { $("#stats").close(); openDialog("archive"); });
+  $("#statsSignIn")?.addEventListener("click", () => { $("#stats").close(); openDialog("account"); });
 }
 
 /* ---------- calendar (read-only history) ---------- */

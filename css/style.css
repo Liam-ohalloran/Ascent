@@ -676,3 +676,22 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ---------- account ---------- */
+.account-btn { position: relative; }
+.account-dot {
+  position: absolute; right: 8px; bottom: 8px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--ok); box-shadow: 0 0 0 2px var(--bg); display: none;
+}
+.account-btn.signed-in .account-dot { display: block; }
+.sign-in { margin: 1rem 0 0.5rem; }
+.sign-in label { display: block; font-weight: 700; margin-bottom: 0.35rem; }
+.sign-in .try-row { flex-wrap: wrap; }
+.sign-in .try-input { flex: 1 1 14rem; min-width: 0; font-family: var(--body); font-weight: 400; font-size: 1rem; text-transform: none; letter-spacing: normal; }
+.sign-in .form-msg { color: var(--slip); }
+.account-msg { padding: 0.6rem 0.8rem; border-radius: var(--r-sm); background: var(--rope-soft); color: var(--ink); }
+.account-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.link-btn {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--rope-ink);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}

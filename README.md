@@ -36,9 +36,21 @@ Summit-word misses earn 100 m, or 200 m if close. The **summit is 4,500 m**: fin
 - **Stats:** current and longest streak, climbs begun and finished, summits, best and average height, average pitches, recent climbs, and a calendar of finished, summit, missed and unfinished days. Past days can be viewed, not replayed. Missed days can reveal their answers on request.
 - **Share:** `Ascent #n, name / Height / Pitches + colour row / Time / Summit / Streak / link`. No words or answers.
 
+### Accounts (optional)
+
+The person icon opens sign-in. It's an emailed link (Supabase Auth), so there's no password. Signing in saves each day's climb to your account, so your streak, stats and calendar follow you to other devices. A climb begun on one device carries on, with the same timer, on another. Climbs already finished in the browser are added on first sign-in. Signing out keeps the browser's copy. If accounts can't be reached, the game plays exactly as before and syncs next time.
+
+The account table (`climbs`, one row per player per day) enforces what the browser can't:
+
+- **Row-level security:** each player can read and write only their own rows.
+- **Start time:** stamped by the server and can't be moved later, so the 6-minute limit can't be stretched by syncing.
+- **Results:** a finished result is write-once and can't be edited.
+- **Deletes and future days:** rows can't be deleted, so a day can't be wiped and replayed, and future days can't be opened.
+- **Timer:** a climb more than 7 minutes past its start can only be closed, not continued.
+
 ### What the browser alone can and can't protect
 
-Everything above is enforced in the browser, so it stops refreshes, double submits, URL tricks and changed device clocks (time comes from the server's `Date` header). It **can't** stop someone who edits or clears their local storage, uses a private window, or plays on a second device. That would need a backend with accounts that signs attempts and stores results. It isn't built, since there's no leaderboard to protect. Stats don't sync between devices, but the save format is versioned so an account sync could be added later.
+Without an account, everything is enforced in the browser. That stops refreshes, double submits, URL tricks and changed device clocks (time comes from the server's `Date` header). It **can't** stop someone who edits or clears their local storage, uses a private window, or plays on a second device. Signed-in players get the server-side rules above. Scores are still computed in the browser, so a determined player could submit an invented height. A public leaderboard would need scoring moved to the server.
 
 ## Architecture
 
@@ -52,7 +64,8 @@ js/daily.js              Perth date keys, server-time sync, puzzle selection
 js/puzzles.js            the daily puzzles, mountain names, validation
 js/game.js               game loop with explicit phases, rendering, input, dialogs
 js/judge.js              dictionary judge, optional AI judge, error texts
-js/stats.js              versioned save, validation, migration, streaks
+js/stats.js              versioned save, validation, migration, streaks, account merge
+js/account.js            optional sign-in (Supabase, email link) and sync
 js/climb.js              mountain, rope, route labels, climber
 js/share.js              spoiler-free share text, share sheet or clipboard
 api/score.js             Vercel Function: AI judge (off until AI Gateway is active)
@@ -92,15 +105,15 @@ Puzzles loop once the list runs out. Each day maps by number, never by load orde
 ## Tests
 
 ```
-npm test            # 57 unit tests, no network
+npm test            # 62 unit tests, no network
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
-npm run test:e2e    # 134 browser checks: the full daily cycle, timer, refresh, rollover, calendar, layouts 320–1440, light/dark
+npm run test:e2e    # 147 browser checks: the full daily cycle, timer, refresh, rollover, calendar, layouts 320–1440, light/dark
 ```
 
-The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`.
+The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`. Accounts are tested against a stand-in client (`tests/e2e/fake_supabase.js`), and the real Supabase project is blocked during runs.
 
 ## Deployment
 
-Pushing to `main` deploys both GitHub Pages (static files) and Vercel (static files plus `api/score.js`). The GitHub Pages site calls the function on the Vercel production URL. Vercel deployments call their own `/api/score`. No secrets exist in the repo: the function authenticates to AI Gateway with Vercel's OIDC token.
+Pushing to `main` deploys both GitHub Pages (static files) and Vercel (static files plus `api/score.js`). The GitHub Pages site calls the function on the Vercel production URL. Vercel deployments call their own `/api/score`. Supabase is project `smkxqwgikxpiaptyszrd` (Sydney). Its publishable key is in `js/account.js` by design, and row-level security protects the data. Its Auth settings must list both sites as redirect URLs. No secrets exist in the repo: the function authenticates to AI Gateway with Vercel's OIDC token.
 
 **Design:** [Figma file](https://www.figma.com/design/tIzXwD9WkiC6m9KrQ1w3i5) (earlier glacier palette, layout still current).

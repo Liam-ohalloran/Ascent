@@ -36,7 +36,9 @@ def serve():
 def seed_state(**extra):
     return {"ascent": json.dumps({"version": 3, "games": {}, "attempts": {}, "results": {}, "seenHelp": True, **extra})}
 
-async def open_page(browser, when=DAY1, tz="Australia/Perth", width=390, height=844, scheme="light", storage=None, ctx=None):
+FAKE_SUPABASE = (ROOT / "tests/e2e/fake_supabase.js").read_text()
+
+async def open_page(browser, when=DAY1, tz="Australia/Perth", width=390, height=844, scheme="light", storage=None, ctx=None, account=None, accounts_down=False):
     ctx = ctx or await browser.new_context(viewport={"width": width, "height": height}, timezone_id=tz, color_scheme=scheme)
     page = await ctx.new_page()
     page.errors = []
@@ -44,6 +46,13 @@ async def open_page(browser, when=DAY1, tz="Australia/Perth", width=390, height=
     page.on("console", lambda m: page.errors.append(m.text) if m.type == "error" else None)
     await page.clock.install(time=when)
     await page.route("**/data/freq.json?clock=*", lambda r: r.fulfill(status=204, headers={}))
+    await page.route(re.compile(r"\.supabase\.co/"), lambda r: r.abort())
+    if accounts_down:
+        await page.route(re.compile(r"supabase-js@"), lambda r: r.abort())
+    else:
+        await page.route(re.compile(r"supabase-js@"), lambda r: r.fulfill(status=200, content_type="text/javascript", body=FAKE_SUPABASE))
+    if account is not None:
+        await page.add_init_script("window.__fakeAccount = " + json.dumps({"session": None, "rows": [], "upserts": [], "otp": [], **account}) + ";")
     seed = seed_state() if storage is None else storage
     if seed:
         await page.add_init_script(
@@ -328,9 +337,60 @@ async def main():
                 await p.screenshot(path=OUT / f"layout-{w}-{scheme}.png")
                 await p.context.close()
 
-        # 17. Reduced motion.
+        # 17. Sign-in is optional, and signing in syncs climbs between devices.
+        p = await open_page(b, account={})
+        await p.click("#accountBtn")
+        await p.wait_for_selector("#emailInput")
+        body = await p.inner_text("#accountBody")
+        check("account: signed-out dialog offers an email link", "Email me a link" in body and "optional" in body)
+        await p.fill("#emailInput", "not-an-email"); await p.click("#sendLinkBtn")
+        check("account: a bad email is caught", "Enter your email" in await p.inner_text("#signInMsg"))
+        await p.fill("#emailInput", "climber@example.com"); await p.click("#sendLinkBtn")
+        await p.wait_for_selector("text=Check your email")
+        check("account: link requested for the email", await p.evaluate("window.__fakeAccount.otp") == ["climber@example.com"])
+        await p.screenshot(path=OUT / "account-signed-out.png")
+        await p.keyboard.press("Escape")
+        check("account: the game still works signed out", await p.locator("#beginBtn").count() == 1)
+        await p.context.close()
+
+        user = {"user": {"id": "u1", "email": "climber@example.com"}}
+        started = "2026-10-14T03:59:00Z"   # one minute before DAY2, on "another device"
+        other = {"pitches": [{"guesses": [{"word": "LIGHT", "linked": ["SUN", "FIRE"], "zipf": 5.5, "points": 620}], "done": True, "points": 620},
+                             {"guesses": [], "done": False}, {"guesses": [], "done": False}, {"guesses": [], "done": False}],
+                 "summit": {"guesses": [], "done": False}, "startedAt": 1791950340000, "endReason": None}
+        local = seed_state(results={"1": {"metres": 2100, "pitches": 5, "summitWord": False}}, attempts={"1": 1791864000000})
+        p = await open_page(b, when=DAY2, storage=local, account={"session": user, "rows": [{"day": 2, "started_at": started, "game": other, "result": None}]})
+        await p.wait_for_selector("#stage .pitch")
+        check("account: a climb begun on another device continues here", THEMES[1] in await p.inner_text("#stage"))
+        check("account: its timer keeps running from the other device's start", "5:00" in await p.inner_text("#timer"), await p.inner_text("#timer"))
+        await p.wait_for_function("window.__fakeAccount.upserts.length > 0")
+        ups = await p.evaluate("window.__fakeAccount.upserts")
+        check("account: this browser's earlier climbs are added to the account", any(u["day"] == 1 and u["result"]["metres"] == 2100 for u in ups), ups)
+        check("account: signed-in dot shows", await p.evaluate("document.querySelector('#accountBtn').classList.contains('signed-in')"))
+        await climb(p, words=("PARK", "SIDE", "SHOW"), summit=("DEFENESTRATION",))
+        await p.wait_for_function("window.__fakeAccount.rows.some(r => r.day === 2 && r.result)")
+        row = await p.evaluate("window.__fakeAccount.rows.find(r => r.day === 2)")
+        check("account: the finished climb is saved to the account", row["result"]["metres"] == (await save(p))["results"]["2"]["metres"], row["result"])
+        await p.click("#accountBtn")
+        check("account: dialog shows who is signed in", "climber@example.com" in await p.inner_text("#accountBody"))
+        await p.screenshot(path=OUT / "account-signed-in.png")
+        await p.click("#signOutBtn")
+        await p.wait_for_selector("#emailInput")
+        check("account: signing out keeps this browser's climbs", (await save(p))["results"].get("2"))
+        check("no console errors with an account", not p.errors, p.errors)
+        await p.context.close()
+
+        p = await open_page(b, accounts_down=True)
+        await p.click("#accountBtn")
+        await p.wait_for_selector("text=can't be reached")
+        check("account: if accounts are down the game still plays", await p.locator("#beginBtn").count() == 1)
+        await p.context.close()
+
+        # 18. Reduced motion.
         ctx = await b.new_context(reduced_motion="reduce")
-        p = await ctx.new_page(); await p.goto(URL); await p.wait_for_selector("#stage")
+        p = await ctx.new_page()
+        await p.route(re.compile(r"supabase-js@|\.supabase\.co/"), lambda r: r.abort())
+        await p.goto(URL); await p.wait_for_selector("#stage")
         dur = await p.evaluate("getComputedStyle(document.querySelector('.climber') || document.body).transitionDuration")
         check("reduced motion shortens transitions", dur in ("1e-05s", "0.00001s", "0s"), dur)
         await ctx.close()

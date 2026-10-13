@@ -160,3 +160,72 @@ test("blocked storage keeps the game playable in memory and says so", () => {
   assert.equal(store.isPersistent(), false);
   assert.match(store.takeNotice(), /isn't letting Ascent save/);
 });
+
+/* ---------- account sync ---------- */
+
+const iso = (t) => new Date(t).toISOString();
+
+test("account results and earlier start times come into this browser", () => {
+  store.recordAttempt(2, START + 60000);
+  const changed = store.mergeRemote([
+    { day: 1, started_at: iso(START - 86400000), game: null, result: { metres: 3200, pitches: 5 } },
+    { day: 2, started_at: iso(START), game: null, result: null },
+  ]);
+  assert.deepEqual(changed.sort(), [1, 2]);
+  assert.equal(store.load().results[1].metres, 3200);
+  assert.equal(store.load().attempts[2], START, "the earlier start wins, so the timer can't be extended");
+  assert.equal(store.summary(2).completed, 1);
+});
+
+test("the account's game wins only if it got further", () => {
+  const partway = game({ current: 2, done: false, endReason: null, summit: { guesses: [], done: false, solved: false, points: 0 } });
+  partway.pitches[2] = { guesses: [], done: false, points: 0 };
+  partway.pitches[3] = { guesses: [], done: false, points: 0 };
+  store.putGame(3, game());
+  store.mergeRemote([{ day: 3, started_at: iso(START), game: partway, result: null }]);
+  assert.equal(store.getGame(3).done, true, "a finished local climb isn't replaced by a less-finished one");
+  store.mergeRemote([{ day: 4, started_at: iso(START), game: partway, result: null }]);
+  assert.equal(store.getGame(4).current, 2, "a climb begun on another device carries over");
+});
+
+test("bad rows from the account are ignored", () => {
+  const changed = store.mergeRemote([
+    { day: 0, result: { metres: 100 } },
+    { day: "x" },
+    { day: 5, started_at: "nonsense", game: { pitches: "no" }, result: { metres: 999999 } },
+    null,
+  ]);
+  assert.deepEqual(changed, []);
+  assert.deepEqual(store.load().results, {});
+  assert.deepEqual(store.mergeRemote("not a list"), []);
+});
+
+test("days this browser knows more about are pushed, finished account days are not", () => {
+  store.recordAttempt(1, START);
+  store.recordResult(1, { metres: 2000, pitches: 5 });
+  store.recordAttempt(2, START);
+  store.putGame(2, game());
+  store.recordAttempt(3, START);
+  const remote = [
+    { day: 1, result: { metres: 2500 } },     // account already finished: leave it
+    { day: 2, game: null, result: null },     // account has less
+  ];
+  assert.deepEqual(store.daysToPush(remote), [2, 3]);
+  const row = store.exportDay(2);
+  assert.equal(row.day, 2);
+  assert.equal(row.started_at, iso(START));
+  assert.equal(row.game.done, true);
+  assert.equal(store.exportDay(9), null);
+});
+
+test("saving a day tells the account sync, merging from it doesn't", () => {
+  const seen = [];
+  const off = store.onChange((n) => seen.push(n));
+  store.recordAttempt(7, START);
+  store.putGame(7, game());
+  store.recordResult(7, { metres: 100, pitches: 1 });
+  store.mergeRemote([{ day: 8, result: { metres: 100 } }]);
+  off();
+  store.recordAttempt(9, START);
+  assert.deepEqual(seen, [7, 7, 7]);
+});

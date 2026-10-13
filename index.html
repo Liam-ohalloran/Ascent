@@ -33,6 +33,10 @@
         <button class="icon-btn" type="button" data-open="stats" aria-label="Your stats">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18M6 20l5-9 3 4 4-8"/></svg>
         </button>
+        <button class="icon-btn account-btn" type="button" data-open="account" id="accountBtn" aria-label="Account, not signed in">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg>
+          <span class="account-dot" aria-hidden="true"></span>
+        </button>
       </nav>
     </header>
 
@@ -108,6 +112,12 @@
     <form method="dialog"><button class="close" aria-label="Close">×</button></form>
     <h2 id="archiveTitle">Your calendar</h2>
     <div id="archiveBody"></div>
+  </dialog>
+
+  <dialog id="account" class="sheet" aria-labelledby="accountTitle">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <h2 id="accountTitle">Your account</h2>
+    <div id="accountBody"></div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

@@ -187,6 +187,11 @@ export function reload() {
   return load();
 }
 
+// Lets the account sync know a day changed, so it can be saved to the account too.
+const listeners = new Set();
+export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+const changed = (n) => listeners.forEach((fn) => { try { fn(n); } catch (err) { console.error(err); } });
+
 function write() {
   if (!persistent) return;
   try {
@@ -207,6 +212,7 @@ export function getGame(n) {
 export function putGame(n, game) {
   load().games[n] = game;
   write();
+  changed(n);
 }
 
 // Marks the day's climb as begun. Only the first call for a day counts.
@@ -215,6 +221,7 @@ export function recordAttempt(n, startedAt) {
   if (data.attempts[n]) return false;
   data.attempts[n] = startedAt;
   write();
+  changed(n);
   return true;
 }
 
@@ -227,7 +234,68 @@ export function recordResult(n, result) {
   if (!clean) return false;
   data.results[n] = clean;
   write();
+  changed(n);
   return true;
+}
+
+/* ---------- account sync ---------- */
+// Rows from the account look like { day, started_at, game, result }. The
+// account is the authority: its results win, its start time wins if earlier,
+// and its game wins if it got further. Everything is validated like a local save.
+
+const progress = (g) => (g ? (g.done ? 1000 : 0) + g.current * 10 +
+  [...g.pitches, g.summit].reduce((s, x) => s + x.guesses.length, 0) : -1);
+
+// Merges account rows into this browser's save. Returns the days that changed.
+export function mergeRemote(rows) {
+  const data = load();
+  const touched = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const n = Number(row?.day);
+    if (!Number.isInteger(n) || n < 1) continue;
+    const t = Date.parse(row.started_at);
+    if (num(t, 1.5e12, 4e12) && !(data.attempts[n] <= t)) {
+      data.attempts[n] = t;
+      touched.add(n);
+    }
+    const g = row.game ? validateGame(row.game) : null;
+    if (g && progress(g) > progress(data.games[n] || null)) {
+      data.games[n] = g;
+      touched.add(n);
+    }
+    const r = row.result ? validateResult(row.result) : null;
+    if (r && JSON.stringify(r) !== JSON.stringify(data.results[n])) {
+      data.results[n] = r;
+      touched.add(n);
+    }
+  }
+  if (touched.size) write();
+  return [...touched];
+}
+
+// The account row for one day, or null if there's nothing to save.
+export function exportDay(n) {
+  const data = load();
+  const game = data.games[n] || null;
+  const result = data.results[n] || null;
+  const start = data.attempts[n] || game?.startedAt || null;
+  if (!game && !result && !start) return null;
+  return { day: n, started_at: start ? new Date(start).toISOString() : null, game, result };
+}
+
+// Days this browser knows more about than the account does.
+export function daysToPush(rows) {
+  const data = load();
+  const remote = new Map((Array.isArray(rows) ? rows : []).map((r) => [Number(r.day), r]));
+  const days = new Set([...Object.keys(data.games), ...Object.keys(data.attempts), ...Object.keys(data.results)].map(Number));
+  return [...days].filter((n) => {
+    const r = remote.get(n);
+    if (!r) return true;
+    if (r.result) return false; // finished on the account: nothing more to say
+    if (data.results[n]) return true;
+    const g = r.game ? validateGame(r.game) : null;
+    return progress(data.games[n] || null) > progress(g);
+  }).sort((a, b) => a - b);
 }
 
 export const seenHelp = () => load().seenHelp;
