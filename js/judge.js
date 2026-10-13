@@ -7,14 +7,34 @@ const API = location.hostname.endsWith("vercel.app")
   ? "/api/score"
   : "https://ascent-ruddy-pi.vercel.app/api/score";
 
-let linksPromise;
-function loadLinks() {
-  linksPromise ||= fetch("data/links.json")
+const cache = {};
+function loadJson(name) {
+  cache[name] ||= fetch(`data/${name}.json`)
     .then((r) => (r.ok ? r.json() : {}))
     .catch(() => ({}));
-  return linksPromise;
+  return cache[name];
 }
+const loadLinks = () => loadJson("links");
+const loadFreq = () => loadJson("freq");
 loadLinks();
+loadFreq();
+
+// How common a word is, on the Zipf scale (about 7 for "the", 3 for rare).
+// Words the dictionary doesn't know are treated as fairly rare.
+const UNKNOWN_ZIPF = 3.6;
+async function zipfOf(word) {
+  const freq = await loadFreq();
+  for (const w of forms(word)) if (freq[w] != null) return freq[w];
+  return UNKNOWN_ZIPF;
+}
+
+// The rarest words that link every clue, for the reveal after a pitch.
+export async function rarestLinks(clues, limit = 3) {
+  const [links, freq] = await Promise.all([loadLinks(), loadFreq()]);
+  const sets = clues.map((c) => new Set(links[c] || []));
+  const all = [...sets[0]].filter((w) => sets.every((s) => s.has(w)) && !clues.includes(w));
+  return all.sort((a, b) => (freq[a] ?? 9) - (freq[b] ?? 9)).slice(0, limit);
+}
 
 async function callApi(body) {
   try {
@@ -36,19 +56,20 @@ function forms(word) {
   return out;
 }
 
-// Returns { linked: [clue, ...], checked: boolean }.
+// Returns { linked: [clue, ...], zipf, checked }.
 // checked is false when the AI judge couldn't be reached for some clues.
 export async function judgeLink(word, clues, answer) {
-  if (word === answer) return { linked: [...clues], checked: true };
+  const zipf = await zipfOf(word);
+  if (word === answer) return { linked: [...clues], zipf, checked: true };
   const links = await loadLinks();
   const linked = clues.filter((c) => forms(word).some((w) => links[c]?.includes(w)));
   const unsure = clues.filter((c) => !linked.includes(c) && c !== word);
-  if (!unsure.length) return { linked, checked: true };
+  if (!unsure.length) return { linked, zipf, checked: true };
 
   const res = await callApi({ kind: "link", word, clues: unsure });
-  if (!res) return { linked, checked: false };
+  if (!res) return { linked, zipf, checked: false };
   for (const c of unsure) if (res.links?.[c]) linked.push(c);
-  return { linked: clues.filter((c) => linked.includes(c)), checked: true };
+  return { linked: clues.filter((c) => linked.includes(c)), zipf, checked: true };
 }
 
 // Returns { exact, close } where close is 0 to 1.

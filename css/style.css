@@ -194,7 +194,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   stroke-width: 3.2;
   stroke-linecap: round;
 }
-.rope.part { stroke-width: 2.2; stroke-opacity: 0.75; }
+.rope { fill: none; stroke-linejoin: round; }
+.stop-dot { fill: var(--rope); }
 .rope.slip {
   stroke: var(--slip);
   stroke-dasharray: 3 5;
@@ -395,6 +396,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
 .outcome { margin: 0.5rem 0 0; font-weight: 700; }
+.rarest { margin: 0.35rem 0 0; color: var(--rock); font-size: 0.92rem; }
 .outcome.good { color: var(--ok); }
 .outcome.bad { color: var(--slip); }
 

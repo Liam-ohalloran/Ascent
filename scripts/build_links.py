@@ -1,5 +1,6 @@
 """Build data/links.json: for every clue in js/puzzles.js, the words that
-genuinely link to it. Used by api/score.js to score any guess.
+genuinely link to it, and data/freq.json: how common each of those words is.
+Used by js/judge.js to score any guess.
 
 W links to clue C when CW or WC is a real word or compound in English
 (checked with the wordfreq library), or when the pair is listed in
@@ -57,6 +58,12 @@ for i, d in enumerate(days, 1):
             links[c].add(p["answer"])
 
 out = {c: sorted(ws) for c, ws in links.items()}
+
+# How common each scoring word is (Zipf scale: 7 = "the", 3 = rare-ish).
+# Rarer words that still link earn more height.
+words = set().union(*out.values())
+freq = {w: round(z(w.lower(), "en"), 2) for w in sorted(words)}
+(ROOT / "data/freq.json").write_text(json.dumps(freq, separators=(",", ":")))
 path = ROOT / "data/links.json"
 path.write_text(json.dumps(out, separators=(",", ":")))
 print(f"{len(clues)} clues, {sum(map(len, out.values()))} links, {path.stat().st_size // 1024} KB")

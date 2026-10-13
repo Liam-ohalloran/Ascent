@@ -92,49 +92,63 @@ export function drawMountain(svg) {
   placeClimber(svg, 0, false);
 }
 
-function placeClimber(svg, index, animate) {
+
+// Each anchor marks another 1,000 m. Your metres decide exactly how far
+// up the route you are, so a niche word visibly climbs higher.
+const PER_ANCHOR = 1000;
+
+function pointAt(metres) {
+  const f = Math.max(0, Math.min(ANCHORS.length - 1, metres / PER_ANCHOR));
+  const i = Math.min(ANCHORS.length - 2, Math.floor(f));
+  const t = f - i;
+  const [x1, y1] = ANCHORS[i];
+  const [x2, y2] = ANCHORS[i + 1];
+  return [x1 + (x2 - x1) * t, y1 + (y2 - y1) * t];
+}
+
+function placeClimber(svg, metres, animate) {
   const climber = svg.querySelector("#climber");
-  const [x, y] = ANCHORS[index];
+  const [x, y] = pointAt(metres);
   climber.classList.toggle("still", !animate);
   climber.style.transform = `translate(${x}px, ${y}px)`;
 }
 
-// results: array of 5 entries, each null (not yet climbed),
-// "clean" (linked every clue), "part" (linked some) or "slip" (no hold).
-// words: the answer for each finished step, shown beside its anchor
-// on wide screens.
-export function updateClimb(svg, results, current, animate = true, words = []) {
+// stops: one entry per finished step, in order:
+//   { metres: running total after that step, word: what you played, points }
+export function updateClimb(svg, stops, summitReached, animate = true) {
+  const total = stops.length ? stops[stops.length - 1].metres : 0;
+
+  // Rope from base camp up to your current height, following the route.
   const rope = svg.querySelector("#ropeLayer");
   rope.innerHTML = "";
-  results.forEach((r, i) => {
-    if (!r) return;
-    const [x1, y1] = ANCHORS[i];
-    const [x2, y2] = ANCHORS[i + 1];
-    el("line", { x1, y1, x2, y2, class: r === "clean" ? "rope" : `rope ${r}` }, rope);
-  });
+  if (total > 0) {
+    const pts = [ANCHORS[0]];
+    for (let k = 1; k < ANCHORS.length && k * PER_ANCHOR < total; k++) pts.push(ANCHORS[k]);
+    pts.push(pointAt(total));
+    el("polyline", { points: pts.map((p) => p.join(",")).join(" "), class: "rope" }, rope);
+  }
 
   svg.querySelectorAll(".anchor").forEach((a) => {
     const i = Number(a.dataset.i);
-    a.classList.toggle("done", Boolean(results[i]));
-    a.classList.toggle("slip", results[i] === "slip");
-    a.classList.toggle("next", i === current);
+    const height = (i + 1) * PER_ANCHOR;
+    a.classList.toggle("done", total >= height);
+    a.classList.toggle("next", total < height && total >= height - PER_ANCHOR);
   });
 
+  // Label each scoring word at the height it took you to.
   const labels = svg.querySelector("#labelLayer");
   labels.innerHTML = "";
-  results.forEach((r, i) => {
-    if (!r || !words[i]) return;
-    const [x, y] = ANCHORS[i + 1];
-    const t = el(
-      "text",
-      { x: x - 9, y: y + 3, class: r === "slip" ? "anchor-label slip" : "anchor-label" },
-      labels
-    );
-    t.textContent = words[i];
-  });
+  let lastY = Infinity;
+  for (const stop of stops) {
+    if (!stop.points || !stop.word) continue;
+    const [x, y] = pointAt(stop.metres);
+    if (Math.abs(lastY - y) < 9) continue; // too close to the previous label
+    lastY = y;
+    const t = el("text", { x: x - 9, y: y + 3, class: "anchor-label" }, labels);
+    t.textContent = stop.word;
+    el("circle", { cx: x, cy: y, r: 2.4, class: "stop-dot" }, labels);
+  }
 
-  svg.querySelector("#summitFlag").classList.toggle("up", results[4] === "clean");
-
-  const reached = results.filter(Boolean).length;
-  placeClimber(svg, reached, animate);
+  svg.querySelector("#summitFlag").classList.toggle("up", Boolean(summitReached));
+  placeClimber(svg, total, animate);
 }

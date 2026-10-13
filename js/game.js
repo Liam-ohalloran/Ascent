@@ -2,20 +2,36 @@ import { todayNumber, dateForNumber, puzzleFor, msUntilTomorrow, formatDate } fr
 import { drawMountain, updateClimb } from "./climb.js";
 import * as store from "./stats.js";
 import { shareText, share } from "./share.js";
-import { judgeLink, judgeSummit } from "./judge.js";
+import { judgeLink, judgeSummit, rarestLinks } from "./judge.js";
 
-// Scoring. A link pitch is worth up to 1,000 m, split across its clues:
-// every clue your word genuinely links earns its share. You get two tries
-// and keep the better one. The second try is worth 70%.
+// Scoring. A link pitch is worth up to 1,000 m.
+// Fit: every clue your word genuinely links earns its share, so the best
+// words sit right between all the clues.
+// Rarity: niche words climb higher. A very common word keeps 60% of the
+// height, a rare one keeps all of it.
+// You get two tries and keep the better one. The second is worth 70%.
 const PITCH_MAX = 1000;
 const SECOND_TRY = 0.7;
 const PITCH_TRIES = 2;
+const COMMON_ZIPF = 5.6;   // as common as LIGHT or POWER: 60%
+const RARE_ZIPF = 3.6;     // as rare as LIME or GROCER: 100%
+
+function rarity(zipf) {
+  const k = (COMMON_ZIPF - zipf) / (COMMON_ZIPF - RARE_ZIPF);
+  return 0.6 + 0.4 * Math.max(0, Math.min(1, k));
+}
+
+function rarityLabel(zipf) {
+  if (zipf >= 5) return "Common word";
+  if (zipf >= 4.3) return "Familiar word";
+  if (zipf >= 3.7) return "Uncommon word";
+  return "Rare word";
+}
 // The summit is exact-word only, worth less with each clue revealed.
 // Near-misses don't solve it, but the closest one earns a little height.
 const SUMMIT_POINTS = [1000, 700, 400];
 const SUMMIT_TRIES = SUMMIT_POINTS.length;
 const NEAR_MISS_MAX = 300;
-const HINT_COST = 200;
 const MAX_LEN = 16;
 
 const $ = (sel) => document.querySelector(sel);
@@ -33,7 +49,7 @@ let locked = false;
 /* ---------- state ---------- */
 
 function freshStep() {
-  return { guesses: [], hint: false, done: false, points: 0, solved: false };
+  return { guesses: [], done: false, points: 0, solved: false };
 }
 
 function freshGame() {
@@ -45,10 +61,11 @@ const target = (i = game.current) => (i < 4 ? puzzle.pitches[i] : puzzle.summit)
 const normalise = (w) => w.toUpperCase().replace(/[^A-Z]/g, "");
 const round10 = (x) => Math.round(x / 10) * 10;
 
-function linkPoints(linkedCount, total, tryIndex, hint) {
+function linkPoints(linkedCount, total, tryIndex, zipf) {
   if (!linkedCount) return 0;
-  const base = PITCH_MAX * (linkedCount / total) * (tryIndex === 0 ? 1 : SECOND_TRY);
-  return Math.max(50, round10(base - (hint ? HINT_COST : 0)));
+  const fit = linkedCount / total;
+  const base = PITCH_MAX * fit * rarity(zipf) * (tryIndex === 0 ? 1 : SECOND_TRY);
+  return Math.max(50, round10(base));
 }
 
 function best(s) {
@@ -68,8 +85,21 @@ function climbResults() {
   return [...game.pitches, game.summit].map((s, i) => stepResult(s, i));
 }
 
-function climbWords() {
-  return [...puzzle.pitches.map((p) => p.answer), puzzle.summit.answer];
+// Where each finished step left you, for drawing the rope.
+function climbStops() {
+  let total = 0;
+  const stops = [];
+  [...game.pitches, game.summit].forEach((s, i) => {
+    if (!s.done) return;
+    total += s.points;
+    const word = i === 4 ? (s.solved ? puzzle.summit.answer : "") : best(s)?.word || "";
+    stops.push({ metres: total, word, points: s.points });
+  });
+  return stops;
+}
+
+function drawClimb(animate) {
+  updateClimb(svg, climbStops(), game.summit.solved, animate);
 }
 
 function save() {
@@ -89,14 +119,13 @@ function loadDay(num) {
   $("#dayLine").textContent = `No. ${n}, ${formatDate(dateForNumber(n))}. ${label}.`;
 
   drawMountain(svg);
-  updateClimb(svg, climbResults(), game.current, false, climbWords());
+  drawClimb(false);
   setAltitude(game.metres, false);
   render();
 }
 
 function startingEntry() {
-  if (game.done) return "";
-  return step().hint ? normalise(target().answer)[0] : "";
+  return "";
 }
 
 /* ---------- altitude ---------- */
@@ -156,10 +185,8 @@ function entryHtml(state = "") {
   if (state === "judging") {
     return `<div class="entry judging" aria-live="polite"><span class="typed">${entry}</span><span class="checking">Checking the hold…</span></div>`;
   }
-  const fixed = s.hint && entry ? `<span class="fixed">${entry[0]}</span>` : "";
-  const rest = s.hint ? entry.slice(1) : entry;
-  const empty = !entry ? `<span class="placeholder">Type a word</span>` : "";
-  return `<div class="entry" role="textbox" aria-label="Your word" aria-readonly="true">${fixed}<span class="typed">${rest}</span>${empty}<span class="caret" aria-hidden="true"></span></div>`;
+  const empty = !entry ? `<span class="placeholder">Type any word</span>` : "";
+  return `<div class="entry" role="textbox" aria-label="Your word" aria-readonly="true"><span class="typed">${entry}</span>${empty}<span class="caret" aria-hidden="true"></span></div>`;
 }
 
 function chipsHtml(t, i) {
@@ -180,17 +207,15 @@ function linkCardHtml(g, t) {
   if (g.linked.length === total) why = total === 2 ? "Links both clues." : "Links all three clues.";
   else if (!g.linked.length) why = `Doesn't link ${t.clues.join(" or ")}.`;
   else why = `Holds on ${g.linked.join(" and ")}. Doesn't link ${missed.join(" or ")}.`;
-  if (g.unchecked) why += " The judge couldn't be reached, so only dictionary links counted.";
+  if (g.unchecked) why += " Only dictionary links counted this time.";
   const pts = g.points ? `+${g.points.toLocaleString()} m` : "0 m";
+  const rare = g.linked.length
+    ? `<span class="g-rare" title="Rarer words climb higher">${rarityLabel(g.zipf)}, ×${rarity(g.zipf).toFixed(2)}</span>`
+    : "";
   return `<div class="guess-card${g.points ? "" : " zero"}">
       <div class="g-top"><span class="g-word">${g.word}</span><span class="g-pts">${pts}</span></div>
-      <p class="g-why">${why}</p>
+      <p class="g-why">${why} ${rare}</p>
     </div>`;
-}
-
-function hintBtnHtml(s) {
-  if (s.hint) return "";
-  return `<button class="btn ghost" id="hintBtn">First letter <span class="note">−${HINT_COST} m</span></button>`;
 }
 
 function renderPitch(i, outcome, judging = false) {
@@ -198,7 +223,9 @@ function renderPitch(i, outcome, judging = false) {
   const t = puzzle.pitches[i];
   const tryNo = s.guesses.length;
   const note = outcome ? "" : tryNo === 0 ? "Two tries" : "Second try, worth 70%";
-  const prompt = t.clues.length === 2 ? "Find a word that links both clues." : "Find a word that links all three clues.";
+  const prompt = t.clues.length === 2
+    ? "Find a word that fits between both clues. Rarer words climb higher."
+    : "Find a word that fits between all three clues. Rarer words climb higher.";
   const b = best(s);
 
   let actions = "";
@@ -206,7 +233,7 @@ function renderPitch(i, outcome, judging = false) {
     const keep = tryNo > 0
       ? `<button class="btn primary" id="keepBtn">${b.points ? `Keep ${b.points.toLocaleString()} m and climb` : "Climb on with 0 m"}</button>`
       : "";
-    actions = `<div class="actions">${keep}${hintBtnHtml(s)}</div>`;
+    actions = keep ? `<div class="actions">${keep}</div>` : "";
   }
 
   stage.innerHTML = `
@@ -247,7 +274,6 @@ function renderSummit(outcome, judging = false) {
       <ol class="defs">${clues}</ol>
       ${misses ? `<ul class="near">${misses}</ul>` : ""}
       ${outcome ? outcomeHtml(4) : entryHtml(judging ? "judging" : "")}
-      ${!outcome && !judging ? `<div class="actions">${hintBtnHtml(s)}</div>` : ""}
     </div>`;
   bindActions();
 }
@@ -261,15 +287,22 @@ function outcomeHtml(i) {
     return `<p class="outcome bad">The summit stayed in the clouds. It was ${answer}.${s.points ? ` Your closest guess earned ${pts}.` : ""}</p>`;
   }
   const b = best(s);
-  const own = b && b.word !== answer && b.linked.length === target(i).clues.length;
-  if (own) return `<p class="outcome good">${pts}. Great find. We had ${answer}, and that goes up the rope.</p>`;
-  if (b && b.word === answer) return `<p class="outcome good">${pts}. ${answer} goes up the rope.</p>`;
-  if (s.points) return `<p class="outcome good">${pts} banked. The link was ${answer}, and it goes up the rope.</p>`;
-  return `<p class="outcome bad">No hold this time. The link was ${answer}, and it still goes up the rope.</p>`;
+  const rare = `<p class="rarest" id="rarest"></p>`;
+  if (b && b.word === answer) return `<p class="outcome good">${pts}. ${answer} goes up the rope.</p>${rare}`;
+  if (b && b.linked.length === target(i).clues.length) return `<p class="outcome good">${pts}. Great find. ${answer} goes up the rope as the next clue.</p>${rare}`;
+  if (s.points) return `<p class="outcome good">${pts} banked. ${answer} goes up the rope as the next clue.</p>${rare}`;
+  return `<p class="outcome bad">No hold this time. ${answer} still goes up the rope.</p>${rare}`;
+}
+
+// After a pitch, show the rarest words that would have fit.
+async function showRarest(i) {
+  const words = await rarestLinks(target(i).clues);
+  const el = $("#rarest");
+  if (el && words.length) el.textContent = `Rarest fits here: ${words.join(", ")}.`;
+  stage.scrollTop = stage.scrollHeight;
 }
 
 function bindActions() {
-  $("#hintBtn")?.addEventListener("click", useHint);
   $("#keepBtn")?.addEventListener("click", () => finishStep());
 }
 
@@ -292,10 +325,8 @@ function renderResult() {
         word = b?.word || "—";
         const total = target(i).clues.length;
         if (!b || !b.linked.length) how = `no link. The answer was ${answer}`;
-        else if (b.linked.length === total) how = b.word === answer ? "links every clue" : `your own link. We had ${answer}`;
-        else how = `links ${b.linked.join(" and ")} only`;
+        else how = `${b.linked.length === total ? "fits every clue" : `links ${b.linked.join(" and ")} only`}, ${rarityLabel(b.zipf).toLowerCase()}`;
       }
-      if (s.hint) how += ", with hint";
       return `<li class="${results[i]}"><span class="r-name">${name}</span><span class="r-word">${word}</span><span class="r-how">${how}</span><span class="r-pts">${s.points.toLocaleString()} m</span></li>`;
     })
     .join("");
@@ -388,9 +419,8 @@ document.addEventListener("keydown", (e) => {
 
 function press(key) {
   if (game.done || locked) return;
-  const floor = step().hint ? 1 : 0;
   if (key === "back") {
-    if (entry.length > floor) entry = entry.slice(0, -1);
+    entry = entry.slice(0, -1);
   } else if (key === "enter") {
     return submit();
   } else if (entry.length < MAX_LEN) {
@@ -424,10 +454,10 @@ async function submit() {
   i < 4 ? renderPitch(i, null, true) : renderSummit(null, true);
 
   if (i < 4) {
-    const { linked, checked } = await judgeLink(word, t.clues, t.answer);
+    const { linked, zipf, checked } = await judgeLink(word, t.clues, t.answer);
     const tryIndex = s.guesses.length;
-    const points = linkPoints(linked.length, t.clues.length, tryIndex, s.hint);
-    s.guesses.push({ word, linked, points, unchecked: !checked });
+    const points = linkPoints(linked.length, t.clues.length, tryIndex, zipf);
+    s.guesses.push({ word, linked, zipf, points, unchecked: !checked });
     s.points = best(s).points;
     locked = false;
     entry = startingEntry();
@@ -444,7 +474,7 @@ async function submit() {
   entry = startingEntry();
   if (res.exact) {
     s.solved = true;
-    s.points = Math.max(100, SUMMIT_POINTS[s.guesses.length - 1] - (s.hint ? HINT_COST : 0));
+    s.points = SUMMIT_POINTS[s.guesses.length - 1];
     return finishStep();
   }
   if (s.guesses.length >= SUMMIT_TRIES) {
@@ -470,7 +500,9 @@ function finishStep() {
 
   locked = true;
   i < 4 ? renderPitch(i, "done") : renderSummit("done");
-  updateClimb(svg, climbResults(), game.current, true, climbWords());
+  stage.scrollTop = stage.scrollHeight;
+  if (i < 4) showRarest(i);
+  drawClimb(true);
   setAltitude(game.metres);
 
   if (game.done && n === today) {
@@ -482,16 +514,7 @@ function finishStep() {
     locked = false;
     entry = startingEntry();
     render();
-  }, 2200);
-}
-
-function useHint() {
-  const s = step();
-  if (s.hint || game.done || locked) return;
-  s.hint = true;
-  entry = normalise(target().answer)[0];
-  save();
-  render();
+  }, 3200);
 }
 
 /* ---------- dialogs ---------- */
@@ -591,7 +614,7 @@ window.addEventListener("popstate", () => loadDay(dayFromUrl()));
 // Redraw the mountain when crossing the phone/laptop breakpoint.
 matchMedia("(min-width: 900px)").addEventListener("change", () => {
   drawMountain(svg);
-  updateClimb(svg, climbResults(), game.current, false, climbWords());
+  drawClimb(false);
 });
 
 loadDay(dayFromUrl());
