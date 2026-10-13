@@ -11,7 +11,7 @@
 // in place untouched. Everything loaded is validated: a bad game is dropped on
 // its own instead of wiping the rest. Local storage can be edited by anyone,
 // so none of this is treated as trustworthy for a leaderboard.
-import { tierFor, totalMetres, summitReached, PITCHES, PITCH_TRIES, SUMMIT_TRIES, MAX_TOTAL, CLIMB_SECONDS } from "./rules.js";
+import { tierFor, totalMetres, summitReached, PITCHES, PITCH_TRIES, SUMMIT_TRIES, MAX_TOTAL } from "./rules.js";
 
 let KEY = "ascent";
 let backing = () => localStorage;
@@ -81,32 +81,53 @@ function validSummitGuess(g) {
 // Returns a clean copy of a saved game, or null if it can't be trusted.
 export function validateGame(g) {
   if (!isObj(g) || !Array.isArray(g.pitches) || g.pitches.length !== PITCHES || !isObj(g.summit)) return null;
+  const time = (x) => (num(x, 1.5e12, 4e12) ? x : null);
+  // How a finished step ended: ran out of time, and when.
+  const ending = (x) => (x.done === true ? {
+    ...(x.timedOut === true ? { timedOut: true } : {}),
+    ...(time(x.endedAt) ? { endedAt: x.endedAt } : {}),
+  } : {});
   const pitches = [];
   for (const [i, p] of g.pitches.entries()) {
     if (!isObj(p) || !Array.isArray(p.guesses) || p.guesses.length > PITCH_TRIES) return null;
     const clueCount = i === 3 ? 3 : 2;
     if (!p.guesses.every((x) => validLinkGuess(x, clueCount))) return null;
     const best = Math.max(0, ...p.guesses.map((x) => x.points));
-    pitches.push({ guesses: p.guesses, done: p.done === true, points: p.done === true ? best : 0, solved: false });
+    pitches.push({ guesses: p.guesses, done: p.done === true, points: p.done === true ? best : 0, solved: false, ...ending(p) });
   }
   const s = g.summit;
   if (!Array.isArray(s.guesses) || s.guesses.length > SUMMIT_TRIES || !s.guesses.every(validSummitGuess)) return null;
   const summit = {
     guesses: s.guesses, done: s.done === true, solved: s.solved === true && s.done === true,
-    points: s.done === true && num(s.points, 0, 1000) ? s.points : 0,
+    points: s.done === true && num(s.points, 0, 1000) ? s.points : 0, ...ending(s),
   };
   // Steps finish in order, so the current step is the first unfinished one.
   const steps = [...pitches, summit];
   const current = steps.findIndex((x) => !x.done);
   const doneCount = current === -1 ? steps.length : current;
   if (steps.slice(doneCount).some((x) => x.done)) return null;
-  const time = (x) => (num(x, 1.5e12, 4e12) ? x : null);
   const startedAt = time(g.startedAt);
-  const timedOut = g.endReason === "timeout";
+  const timedOut = g.endReason === "timeout"; // a whole-climb timeout, from before per-pitch timers
+  // Each pitch's timer start. Only pitches up to the current one can have
+  // started, and in order. Deadlines are never stored: they're always
+  // start + PITCH_SECONDS (rules.pitchDeadline).
+  const pitchStarts = [null, null, null, null, null];
+  if (Array.isArray(g.pitchStarts)) {
+    let last = startedAt || 0;
+    for (let k = 0; k <= Math.min(doneCount, 4); k++) {
+      const t = time(g.pitchStarts[k]);
+      if (t === null) { if (k < doneCount) continue; break; }
+      if (t < last) return null;
+      pitchStarts[k] = last = t;
+    }
+  } else if (startedAt && doneCount < steps.length && !timedOut) {
+    // A climb begun under the old six-minute clock: its current pitch is
+    // treated as having started when the climb did, so it gains no time.
+    pitchStarts[doneCount] = startedAt;
+  }
   const game = {
     pitches, summit, current: doneCount, metres: 0,
-    startedAt,
-    deadline: startedAt ? startedAt + CLIMB_SECONDS * 1000 : null, // never trust a stored deadline
+    startedAt, pitchStarts,
     endedAt: time(g.endedAt),
     endReason: doneCount === steps.length ? "finished" : timedOut ? "timeout" : null,
     rejected: num(g.rejected, 0, 999) ? Math.floor(g.rejected) : 0,

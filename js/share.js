@@ -1,13 +1,13 @@
 // Builds the spoiler-free share text: no words, just how the climb went.
 // 🟩 fit every clue, 🟨 linked some, 🟧 a foothold or near miss, ⬛ not reached.
-import { formatClock, summitReached, MAX_TOTAL, CLIMB_SECONDS } from "./rules.js";
+import { formatClock, summitReached, MAX_TOTAL, climbSeconds } from "./rules.js";
 
 const MARK = { fit: "🟩", partial: "🟨", near: "🟧", foothold: "🟧", none: "⬛" };
 
 export function shareText(n, name, game, results, streak) {
   const marks = results.map((r) => MARK[r] || "⬛").join("");
   const pitches = [...game.pitches, game.summit].filter((s) => s.done && s.guesses.length).length;
-  const time = game.startedAt ? Math.min(CLIMB_SECONDS, Math.round(((game.endedAt || game.deadline) - game.startedAt) / 1000)) : 0;
+  const time = climbSeconds(game);
   const url = location.origin + location.pathname;
   return [
     `Ascent #${n}, ${name} ⛰️`,

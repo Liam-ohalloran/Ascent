@@ -74,13 +74,18 @@ async def begin(page):
     await page.click("#beginBtn")
     await page.wait_for_selector("#stage .pitch")
 
-async def climb(page, words=("LIGHT", "GREEN", "ROOM", "MATE"), summit=("PETRICHOR",)):
-    """Plays one word per link pitch (keeping it if it doesn't fit), then the summit."""
+async def climb(page, words=("LIGHT", "GREEN", "ROOM", "MATE"), summit=("PETRICHOR",), think=0):
+    """Plays one word per link pitch (keeping it if it doesn't fit), then the summit.
+    think: seconds spent on each pitch before answering."""
     for w in words:
+        if think:
+            await page.clock.run_for(think * 1000)
         await word(page, w)
         if await page.locator("#keepBtn").count():
             await page.click("#keepBtn")
         await page.click("#nextBtn")
+    if think:
+        await page.clock.run_for(think * 1000)
     for w in summit:
         await word(page, w)
     if await page.locator("#nextBtn").count():
@@ -114,7 +119,7 @@ async def main():
         check("no word field before the climb begins", await p.locator("#entryForm").is_hidden())
         await p.screenshot(path=OUT / "02-ready.png")
         await begin(p)
-        check("timer shows six minutes", "6:00" in await p.inner_text("#timer"))
+        check("timer shows 20 seconds for the first pitch", "0:20" in await p.inner_text("#timer"))
         check("first pitch is The Foothills", THEMES[0] in await p.inner_text("#stage"))
         s = await save(p)
         check("attempt recorded once", s["attempts"].get("1") and s["games"]["1"]["startedAt"])
@@ -138,14 +143,16 @@ async def main():
         g = s["games"]["1"]
         check("pitch keeps its best try", g["pitches"][0]["points"] == 430 and len(g["pitches"][0]["guesses"]) == 2, g["pitches"][0])
         check("refused word counted as rejected", g["rejected"] == 1, g["rejected"])
+        check("the next pitch waits: no clock during the result", g["pitchStarts"][1] is None, g["pitchStarts"])
         await p.click("#nextBtn")
         check("second pitch is The Forest", THEMES[1] in await p.inner_text("#stage"))
+        check("unused time doesn't carry over: the Forest gets exactly 20 seconds", "0:20" in await p.inner_text("#timer"))
 
-        # 4. Refreshing keeps the climb and its deadline.
-        await p.clock.run_for(60_000)
+        # 4. Refreshing keeps the climb and the pitch's deadline.
+        await p.clock.run_for(5_000)
         await p.reload(); await p.wait_for_selector("#stage .pitch")
         t = await p.inner_text("#timer")
-        check("refresh keeps the deadline (timer not reset)", "4:59" in t or "5:00" in t, t)
+        check("refresh keeps the pitch deadline (timer not reset)", "0:15" in t, t)
         check("refresh resumes on The Forest", THEMES[1] in await p.inner_text("#stage"))
         check("refresh keeps the height", await p.inner_text("#altNum") == "430")
         await word(p, "moon")
@@ -162,6 +169,10 @@ async def main():
         await p.wait_for_function("document.body.dataset.phase === 'feedback'")
         g = (await save(p))["games"]["1"]
         check("rapid submits record exactly one guess", len(g["pitches"][0]["guesses"]) == 1 and g["current"] == 1)
+        check("rapid submits don't start or extend a clock", g["pitchStarts"][0] == g["startedAt"] and g["pitchStarts"][1] is None, g["pitchStarts"])
+        await p.clock.run_for(1_700)
+        await p.wait_for_function("document.body.dataset.phase === 'playing'")
+        check("the next pitch starts by itself after the result", THEMES[1] in await p.inner_text("#stage") and "0:20" in await p.inner_text("#timer"))
         await p.context.close()
 
         # 6. Word lists unavailable: clear error, no try used, retry works.
@@ -183,17 +194,16 @@ async def main():
         # 7. A full climb: results become the day's screen; it can't be restarted.
         p = await open_page(b, width=1440, height=900)
         await begin(p)
-        await p.clock.run_for(95_000)
-        await climb(p)
+        await climb(p, think=5)
         text = await p.inner_text("#stage")
         check("results screen after the climb", "Finished at" in text and "Kestrel Spire" in text and "No. 1" in text, text[:120])
         check("finishing all five isn't the summit with common words", "Summit reached" not in text)
-        check("results show pitches, time, words and refused", all(x in text for x in ("5/5", "1:35", "Words", "Refused")), text[:400])
+        check("results show pitches, time, words and refused", all(x in text for x in ("5/5", "0:25", "Words", "Refused")), text[:400])
         check("results show streaks and the next-mountain countdown", "Streak" in text and "next mountain appears in" in text.lower())
         check("no restart button on results", await p.locator("#beginBtn").count() == 0 and await p.locator("#entryForm").is_hidden())
         await p.screenshot(path=OUT / "06-results-desktop.png")
         r = (await save(p))["results"]["1"]
-        check("result recorded with the climb's details", r["pitches"] == 5 and r["time"] == 95 and r["summitWord"] and not r["summit"], r)
+        check("result recorded with the climb's details", r["pitches"] == 5 and r["time"] == 25 and r["summitWord"] and not r["summit"], r)
         for _ in range(2):
             await p.reload(); await p.wait_for_selector("#stage .result")
         s = await save(p)
@@ -205,7 +215,7 @@ async def main():
         await p.click("#shareBtn")
         clip = await p.evaluate("navigator.clipboard.readText()")
         check("share text has the day, height, pitches, time, summit and streak",
-              all(x in clip for x in ("Ascent #1", "m / 5,000 m", "Pitches: 5 / 5", "Time: 1:35", "Summit: Not reached", "Streak: 1 day")), clip)
+              all(x in clip for x in ("Ascent #1", "m / 5,000 m", "Pitches: 5 / 5", "Time: 0:25", "Summit: Not reached", "Streak: 1 day")), clip)
         check("share text reveals no answers", not any(w in clip for w in ("LIGHT", "GREEN", "ROOM", "MATE", "PETRICHOR")), clip)
         check("no console errors in a full climb", not p.errors, p.errors)
         await p.context.close()
@@ -220,31 +230,91 @@ async def main():
         await p.screenshot(path=OUT / "07-rare-climb.png")
         await p.context.close()
 
-        # 9. The timer runs out: the climb ends where it is.
+        # 9. A pitch's timer runs out: it keeps its best try and the climb moves on.
         p = await open_page(b)
         await begin(p)
         await word(p, "spot")
-        await p.clock.run_for(361_000)
-        await p.wait_for_selector("#stage .result")
+        spot = (await save(p))["games"]["1"]["pitches"][0]["guesses"][0]["points"]
+        await p.clock.run_for(19_000)
+        check("a wrong guess doesn't reset the timer", "0:01" in await p.inner_text("#timer"), await p.inner_text("#timer"))
+        await p.clock.run_for(1_500)
+        await p.wait_for_function("document.body.dataset.phase === 'feedback'")
         text = await p.inner_text("#stage")
         g = (await save(p))["games"]["1"]
-        check("time-out ends the climb", g["done"] and g["endReason"] == "timeout", g.get("endReason"))
-        check("a pitch in progress keeps its best try at time-out", g["pitches"][0]["points"] == 370, g["pitches"][0]["points"])
-        check("results say time ran out", "Time ran out" in text and "6:00" in text)
-        await p.screenshot(path=OUT / "08-timeout.png")
+        check("time-out ends the pitch, not the climb", not g["done"] and g["current"] == 1 and g["pitches"][0]["timedOut"], g)
+        check("the timed-out pitch keeps its best try", g["pitches"][0]["points"] == spot, g["pitches"][0])
+        check("the time-out is shown", "Out of time" in text)
+        await p.screenshot(path=OUT / "08-pitch-timeout.png")
+        await p.clock.run_for(1_700)
+        await p.wait_for_function("document.body.dataset.phase === 'playing'")
+        check("the next pitch gets a fresh 20 seconds", THEMES[1] in await p.inner_text("#stage") and "0:20" in await p.inner_text("#timer"))
+        for k in range(2, 6):   # let every remaining pitch run out, one at a time
+            await p.clock.run_for(22_000)
+            await p.wait_for_function(f"JSON.parse(localStorage.ascent).games['1'].current >= {k}")
+        g = (await save(p))["games"]["1"]
+        check("five time-outs finish the climb", g["done"] and g["endReason"] == "finished" and all(x.get("timedOut") for x in g["pitches"] + [g["summit"]]), g)
+        check("the score is the one word that was played", g["metres"] == spot, g["metres"])
+        await p.click("#nextBtn"); await p.wait_for_selector("#stage .result")
+        text = await p.inner_text("#stage")
+        check("results say time ran out on five pitches", "Time ran out on 5 pitches" in text and "1:40" in text, text[:300])
+        check("only one clock ran: the climb took 5 x 20 seconds", (await save(p))["results"]["1"]["time"] == 100)
         await p.context.close()
 
-        # 10. Closing the page and coming back after the deadline.
+        # 10. Closing the page and coming back later.
         p = await open_page(b)
         await begin(p)
         await word(p, "light")
+        await p.click("#nextBtn")     # the Forest's clues are now on screen, its clock running
         ctx = p.context
         await p.close()
         p = await open_page(b, when="2026-10-13T04:10:00Z", ctx=ctx, storage={})
-        check("late return finishes the climb at its deadline", await p.locator("#stage .result").count() == 1)
-        r = (await save(p))["results"].get("1")
-        check("late return records the result once", r and r["time"] == 360 and r["endReason"] == "timeout", r)
+        g = (await save(p))["games"]["1"]
+        check("late return: the running pitch ended at its deadline", g["pitches"][1]["timedOut"] and g["pitches"][1]["endedAt"] == g["pitchStarts"][1] + 20_000, g["pitches"][1])
+        check("late return: the next pitch hasn't started (its clues were never shown)", g["current"] == 2 and g["pitchStarts"][2] is None, g["pitchStarts"])
+        await p.clock.run_for(1_700)
+        await p.wait_for_function("document.body.dataset.phase === 'playing'")
+        check("late return: the next pitch then gets its 20 seconds", THEMES[2] in await p.inner_text("#stage") and "0:20" in await p.inner_text("#timer"))
         await ctx.close()
+
+        # 10b. Refresh in the transition, hidden tabs and a clock set backwards.
+        p = await open_page(b)
+        await begin(p)
+        await word(p, "light")
+        await p.reload(); await p.wait_for_selector("#stage .feedback")
+        check("refresh during the transition shows the result again", "LIGHT" in await p.inner_text("#stage"))
+        await p.clock.run_for(1_700)
+        await p.wait_for_function("document.body.dataset.phase === 'playing'")
+        first = (await save(p))["games"]["1"]["pitchStarts"][1]
+        await p.clock.run_for(4_000)
+        await p.reload(); await p.wait_for_selector("#stage .pitch")
+        g = (await save(p))["games"]["1"]
+        check("refresh mid-pitch keeps the pitch's start", g["pitchStarts"][1] == first and "0:16" in await p.inner_text("#timer"), await p.inner_text("#timer"))
+        await p.clock.set_system_time("2026-10-13T03:00:00Z")    # an hour backwards
+        await p.clock.run_for(1_000)
+        check("setting the clock back doesn't add time", "0:15" in await p.inner_text("#timer"), await p.inner_text("#timer"))
+        hide = "(h) => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => h ? 'hidden' : 'visible' }); document.dispatchEvent(new Event('visibilitychange')); }"
+        await p.evaluate(hide, True)
+        await p.clock.run_for(40_000)
+        await p.evaluate(hide, False)
+        await p.wait_for_function("document.body.dataset.phase === 'feedback'")
+        g = (await save(p))["games"]["1"]
+        check("a hidden tab doesn't pause the pitch", g["pitches"][1]["timedOut"] and g["current"] == 2, g["pitches"][1])
+        await p.evaluate(hide, True)
+        await p.clock.run_for(30_000)
+        g = (await save(p))["games"]["1"]
+        check("the next pitch doesn't start while the page is hidden", g["pitchStarts"][2] is None, g["pitchStarts"])
+        await p.evaluate(hide, False)
+        await p.clock.run_for(1_700)
+        await p.wait_for_function("document.body.dataset.phase === 'playing'")
+        t = await p.inner_text("#timer")   # the page clock also runs in real time, so allow a tick
+        check("it starts with 20 seconds once the page is seen", THEMES[2] in await p.inner_text("#stage") and ("0:20" in t or "0:19" in t), t)
+        # This pitch began on the game's own clock, an hour ahead of the device
+        # clock set back above. Reloading offline can't turn that into extra time.
+        await p.reload(); await p.wait_for_selector("#stage .feedback, #stage .pitch")
+        g = (await save(p))["games"]["1"]
+        check("reloading with the clock set back ends the pitch instead of adding time", g["pitches"][2].get("timedOut") and g["current"] == 3, g["pitches"][2])
+        check("no console errors in the timer journeys", not p.errors, p.errors)
+        await p.context.close()
 
         # 11. Midnight: countdown reaches zero, the new mountain loads, the old result stays.
         p = await open_page(b, when="2026-10-13T15:50:00Z")
@@ -358,12 +428,13 @@ async def main():
         started = "2026-10-14T03:59:00Z"   # one minute before DAY2, on "another device"
         other = {"pitches": [{"guesses": [{"word": "LIGHT", "linked": ["SUN", "FIRE"], "zipf": 5.5, "points": 620}], "done": True, "points": 620},
                              {"guesses": [], "done": False}, {"guesses": [], "done": False}, {"guesses": [], "done": False}],
-                 "summit": {"guesses": [], "done": False}, "startedAt": 1791950340000, "endReason": None}
+                 "summit": {"guesses": [], "done": False}, "startedAt": 1791950340000, "endReason": None,
+                 "pitchStarts": [1791950340000, 1791950395000, None, None, None]}   # the Forest began 5 s ago
         local = seed_state(results={"1": {"metres": 2100, "pitches": 5, "summitWord": False}}, attempts={"1": 1791864000000})
         p = await open_page(b, when=DAY2, storage=local, account={"session": user, "rows": [{"day": 2, "started_at": started, "game": other, "result": None}]})
         await p.wait_for_selector("#stage .pitch")
         check("account: a climb begun on another device continues here", THEMES[1] in await p.inner_text("#stage"))
-        check("account: its timer keeps running from the other device's start", "5:00" in await p.inner_text("#timer"), await p.inner_text("#timer"))
+        check("account: its timer keeps running from the other device's start", "0:15" in await p.inner_text("#timer"), await p.inner_text("#timer"))
         await p.wait_for_function("window.__fakeAccount.upserts.length > 0")
         ups = await p.evaluate("window.__fakeAccount.upserts")
         check("account: this browser's earlier climbs are added to the account", any(u["day"] == 1 and u["result"]["metres"] == 2100 for u in ups), ups)
@@ -423,4 +494,5 @@ async def main():
     print(f"\n{passed}/{len(results)} checks passed. Screenshots in {OUT}")
     sys.exit(0 if passed == len(results) else 1)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

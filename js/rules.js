@@ -1,13 +1,18 @@
 // The rules of Ascent in one place. Pure functions only, so they can be
 // unit tested and nothing else in the game does its own maths.
 //
-// One climb a day. It has five themed pitches and a time limit. Every real
+// One climb a day. It has five themed pitches, each with its own short
+// timer. Every real
 // word earns height; the closer it gets to the best word, and the rarer it
 // is, the higher it climbs. Gibberish earns nothing and doesn't use a try.
 
 export const THEMES = ["The Foothills", "The Forest", "The Frozen Ridge", "The Storm Wall", "The Summit"];
 
-export const CLIMB_SECONDS = 360;    // six minutes from "Begin climb"
+// THE TIMER. Each of the five pitches gets exactly this many seconds, from
+// the moment its clues are on screen. Unused time never carries over.
+export const PITCH_SECONDS = 20;
+// The pause between pitches, while the result shows. No clock runs during it.
+export const TRANSITION_MS = 1600;
 export const PITCHES = 4;            // link pitches before the summit word
 export const PITCH_MAX = 1000;       // metres available on each link pitch
 export const PITCH_TRIES = 2;
@@ -187,10 +192,45 @@ export function pitchResult(step, clueCount) {
   return holdKind(b.linked?.length || 0, clueCount, b.near);
 }
 
-// Seconds left on a climb at time `now` (ms).
+// When pitch i's time runs out, or null if its timer hasn't started.
+// Always computed from the saved start, never from a saved deadline.
+export function pitchDeadline(game, i = game?.current) {
+  const start = game?.pitchStarts?.[i];
+  return Number.isFinite(start) ? start + PITCH_SECONDS * 1000 : null;
+}
+
+// A clock more than this far behind a pitch's saved start has been set
+// backwards (offline, so the server time couldn't correct it). That pitch
+// ends rather than getting its time back. Small clock corrections pass.
+export const CLOCK_SLACK_MS = 2000;
+
+// Has the current pitch's time run out at `now` (ms)?
+export function pitchExpired(game, now) {
+  const deadline = pitchDeadline(game);
+  if (deadline === null) return false;
+  return now >= deadline || now < game.pitchStarts[game.current] - CLOCK_SLACK_MS;
+}
+
+// Seconds left on the current pitch at time `now` (ms).
 export function secondsLeft(game, now) {
-  if (!game?.deadline) return CLIMB_SECONDS;
-  return Math.max(0, Math.ceil((game.deadline - now) / 1000));
+  const deadline = pitchDeadline(game);
+  if (deadline === null) return PITCH_SECONDS;
+  if (pitchExpired(game, now)) return 0;
+  return clamp(Math.ceil((deadline - now) / 1000), 0, PITCH_SECONDS);
+}
+
+// Seconds the climb has used: the time spent on each pitch, at most
+// PITCH_SECONDS each. Transitions between pitches don't count.
+export function climbSeconds(game) {
+  const steps = [...(game?.pitches || []), game?.summit].filter(Boolean);
+  let total = 0;
+  steps.forEach((s, i) => {
+    const start = game.pitchStarts?.[i];
+    if (!s.done || !Number.isFinite(start)) return;
+    const end = Number.isFinite(s.endedAt) ? s.endedAt : start + PITCH_SECONDS * 1000;
+    total += clamp((end - start) / 1000, 0, PITCH_SECONDS);
+  });
+  return Math.round(total);
 }
 
 export function formatClock(seconds) {

@@ -137,6 +137,8 @@ button:disabled { cursor: not-allowed; }
 .timer { margin: 0; flex: none; font-weight: 700; color: var(--rock); font-size: 0.9rem; }
 .timer-num { font-family: var(--display); font-weight: 900; font-size: 1.5rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 .timer.low .timer-num { color: var(--slip); }
+.timer.paused .timer-num { opacity: 0.55; }
+.next-note { margin: 0.75rem 0 0; color: var(--rock); font-size: 0.95rem; }
 @media (max-width: 899px) {
   .day-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }

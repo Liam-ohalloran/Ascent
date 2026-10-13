@@ -9,7 +9,7 @@ A daily word climb. One mountain a day, the same for everyone, changing at midni
 One climb a day, the same mountain for everyone. The game never ends, only the day's climb does.
 
 1. **Today's climb.** Open Ascent to see today's mountain and its five themed pitches: The Foothills, The Forest, The Frozen Ridge, The Storm Wall, The Summit.
-2. **Begin climb.** Starts a **6-minute** timer. There's one scored climb a day and no restarts.
+2. **Begin climb.** Each of the five pitches has its own **20-second** timer, starting when its clues appear. Unused time doesn't carry over. A pitch that runs out keeps your best word (or 0 m) and the next pitch starts with a fresh 20 seconds after a short result screen. There's one scored climb a day and no restarts.
 3. **Pitches 1 to 4.** Type any word that associates with every clue. Synonyms (QUIET + CALM → STILL or TRANQUIL), opposites (BIG + LARGE → SMALL), related meanings, shared context (QUEEN + KING → CROWN), common phrases and compound words all count. No letter count. Two tries, the better one counts, and the second is worth 70%.
 4. **The summit word.** An uncommon word with three definitions, broad to clear: 1,000, 700 or 400 m.
 5. **Results.** These become the day's screen, with a countdown to the next mountain at midnight Perth time.
@@ -33,8 +33,8 @@ Summit-word misses earn 100 m, or 200 m if close. The **summit is 4,500 m**: fin
 
 - **Reset:** midnight in Australia/Perth (UTC+8, no daylight saving), for every player. Day *n* is the *n*th Perth calendar day since 2026-10-13. A unit test walks 730 midnights to prove no day is skipped or repeated.
 - **Daily identifier:** the puzzle number, derived from the Perth date, so it's the same on every device. Puzzles loop once the list runs out.
-- **One attempt:** "Begin climb" saves the start time. The deadline is always start + 6 minutes (a stored deadline is never trusted), so refreshing can't reset it. Closing the page and coming back late ends the climb at its deadline. A finished day shows only its results. `?day=` links can't open a climb.
-- **Across midnight:** a climb under way keeps its 6 minutes and is saved to the day it began. The new mountain then appears automatically.
+- **One attempt:** "Begin climb" saves the start time. Each pitch's start is saved before its clues appear, and its deadline is always start + 20 seconds (`PITCH_SECONDS` in `js/rules.js`; a stored deadline is never trusted), so refreshing can't reset it. Wrong or refused words don't reset it, and no clock runs during the 1.6-second result transition between pitches. The game's clock never runs backwards within a visit, and a saved start more than 2 seconds ahead of the clock (a clock set back while offline) ends that pitch. A hidden tab doesn't pause a running pitch, but the next pitch doesn't start until the page is visible, since its clues can't be seen. Closing the page and coming back late ends the running pitch at its deadline. A finished day shows only its results. `?day=` links can't open a climb.
+- **Across midnight:** a climb under way keeps its pitch timers and is saved to the day it began. The new mountain then appears automatically.
 - **Streak:** +1 for each Perth day whose climb is finished (all five pitches or the timer ran out). A day without one resets it. Revisiting results never adds to it.
 - **Stats:** current and longest streak, climbs begun and finished, summits, best and average height, average pitches, recent climbs, and a calendar of finished, summit, missed and unfinished days. Past days can be viewed, not replayed. Missed days can reveal their answers on request.
 - **Share:** `Ascent #n, name / Height / Pitches + colour row / Time / Summit / Streak / link`. No words or answers.
@@ -50,10 +50,10 @@ The person icon opens sign-in. It's an emailed link (Supabase Auth), so there's 
 The account table (`climbs`, one row per player per day) enforces what the browser can't:
 
 - **Row-level security:** each player can read and write only their own rows.
-- **Start time:** stamped by the server and can't be moved later, so the 6-minute limit can't be stretched by syncing.
+- **Start time:** stamped by the server and can't be moved later.
 - **Results:** a finished result is write-once and can't be edited.
 - **Deletes and future days:** rows can't be deleted, so a day can't be wiped and replayed, and future days can't be opened.
-- **Timer:** a climb more than 7 minutes past its start can only be closed, not continued.
+- **Timer:** a climb more than 7 minutes past its start can only be closed, not continued. (This server rule predates per-pitch timers and needs revisiting: a slow player can now take longer than 7 minutes in total.)
 
 ### What the browser alone can and can't protect
 
@@ -117,9 +117,9 @@ Puzzles loop once the list runs out. Each day maps by number, never by load orde
 ## Tests
 
 ```
-npm test            # 87 unit tests, no network
+npm test            # 90 unit tests, no network
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
-npm run test:e2e    # 152 browser checks: the full daily cycle, timer, refresh, rollover, calendar, layouts 320–1440, light/dark
+npm run test:e2e    # 171 browser checks: the full daily cycle, per-pitch timers, time-outs, refresh, hidden tabs, clock changes, rollover, calendar, layouts 320–1440, light/dark
 ```
 
 The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`. Accounts are tested against a stand-in client (`tests/e2e/fake_supabase.js`), and the real Supabase project is blocked during runs.

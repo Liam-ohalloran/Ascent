@@ -7,11 +7,19 @@
 // and inside the climb the game is always in exactly one phase:
 //   playing   waiting for a word (the only phase that accepts input)
 //   judging   a guess is being checked; input is locked so it can't be sent twice
-//   feedback  a pitch just finished; waiting for the player to continue
+//   feedback  a pitch just finished; its result shows briefly, then the next
+//             pitch starts by itself (or straight away with the button)
 // Every change goes through setPhase(). A guess is stored only after it has
 // been judged, in one save, so refreshing mid-check can't score it twice.
-// The climb's deadline is saved when it begins, so refreshing never resets
-// the timer, and there is no way to start the day's climb again.
+//
+// Timing: each pitch has rules.PITCH_SECONDS. Its start time is saved before
+// its clues are shown, and its deadline is always start + PITCH_SECONDS
+// (never a stored deadline), so refreshing, switching tabs or changing the
+// device clock can't add time. Only one pitch clock exists at a time. No
+// clock runs during the short transition between pitches, and the next
+// pitch doesn't start while the page is hidden, because its clues can't be
+// seen. A pitch that runs out keeps its best try (or 0 m) and the climb
+// moves on to the next pitch.
 import * as rules from "./rules.js";
 import { syncClock, travelTo, now, todayNumber, puzzleFor, msUntilTomorrow, keyForNumber, formatKey } from "./daily.js";
 import { drawMountain, updateClimb } from "./climb.js";
@@ -41,13 +49,23 @@ let game = null;
 const freshStep = () => ({ guesses: [], done: false, points: 0, solved: false });
 const freshGame = () => ({
   current: 0, pitches: [0, 1, 2, 3].map(freshStep), summit: freshStep(), metres: 0, done: false,
-  startedAt: null, deadline: null, endedAt: null, endReason: null, rejected: 0,
+  startedAt: null, pitchStarts: [null, null, null, null, null], endedAt: null, endReason: null, rejected: 0,
 });
 const step = (i = game.current) => (i < 4 ? game.pitches[i] : game.summit);
 const target = (i = game.current) => (i < 4 ? puzzle.pitches[i] : puzzle.summit);
 const fmt = (m) => m.toLocaleString("en-AU");
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const nowMs = () => now().getTime();
+// The game's clock. It follows server-corrected time (daily.now) but never
+// runs backwards during a visit, so setting the device clock back mid-pitch
+// can't add time. Forward jumps (a phone waking up) are taken as they come.
+let mono = null;
+function nowMs() {
+  const wall = now().getTime();
+  const perf = performance.now();
+  if (!mono || wall >= mono.wall + (perf - mono.perf)) mono = { wall, perf };
+  return Math.max(wall, mono.wall + (perf - mono.perf));
+}
+const deadline = () => rules.pitchDeadline(game);
 const SHORT_THEME = ["Foothills", "Forest", "Ridge", "Storm", "Summit"];
 
 function resultsFor(g, p) {
@@ -72,6 +90,7 @@ function setPhase(next) {
   climbBtn.setAttribute("aria-busy", String(phase === "judging"));
   const climbing = ["playing", "judging", "feedback"].includes(phase) && game && !game.done;
   timerEl.hidden = !climbing;
+  if (phase !== "feedback") clearTimeout(transitionTimer);
   if (climbing) startTimer();
   else stopTimer();
 }
@@ -212,8 +231,8 @@ function loadToday() {
     return;
   }
   game = store.getGame(n) || freshGame();
-  // A climb whose time ran out while the page was closed ends now, as of its deadline.
-  if (game.startedAt && !game.done && nowMs() >= game.deadline) endClimb("timeout", { quiet: true });
+  // A pitch whose time ran out while the page was closed ends as of its deadline.
+  expirePitch({ quiet: true });
   input.value = "";
   formMsg.textContent = "";
   $("#dayLine").innerHTML = `<strong>${esc(puzzle.name)}</strong>, No. ${n}. ${esc(formatKey(keyForNumber(n)))}.`;
@@ -225,7 +244,7 @@ function loadToday() {
 
 /* ---------- daily rollover ---------- */
 // At midnight Perth time the new mountain appears by itself. A climb that is
-// under way keeps its own timer (at most six minutes) and is saved to the day
+// under way keeps its own pitch timers and is saved to the day
 // it began. After it ends, the new mountain is one tap away.
 
 let rolloverTimer;
@@ -246,10 +265,13 @@ async function checkDay() {
   scheduleRollover();
 }
 
+// Coming back to the page (another tab, a locked phone): a pitch whose time
+// ran out while away ends now, and a pitch waiting to start starts now.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || phase === "loading") return;
   checkDay();
-  if (game?.startedAt && !game.done && nowMs() >= game.deadline) endClimb("timeout");
+  expirePitch();
+  if (phase === "feedback" && !game.done) scheduleNextPitch(TRANSITION_LEFT());
 });
 
 // Another tab saved: reload so the two tabs don't overwrite each other.
@@ -259,9 +281,9 @@ window.addEventListener("storage", (e) => {
   loadToday();
 });
 
-/* ---------- climb timer ---------- */
-// Separate from the countdown to tomorrow's mountain: this one is the six
-// minutes you have for today's climb.
+/* ---------- pitch timer ---------- */
+// Separate from the countdown to tomorrow's mountain: this one is the
+// PITCH_SECONDS you have for the current pitch. One interval, one clock.
 
 let timerInterval;
 let lastSpoken = null;
@@ -275,15 +297,61 @@ function stopTimer() {
   timerInterval = null;
 }
 function tickTimer() {
-  if (!game?.deadline || game.done) return stopTimer();
+  if (!game?.startedAt || game.done) return stopTimer();
+  const running = deadline() !== null;
   const left = rules.secondsLeft(game, nowMs());
   timerEl.querySelector(".timer-num").textContent = rules.formatClock(left);
-  timerEl.classList.toggle("low", left <= 60);
-  if ((left === 60 || left === 10) && lastSpoken !== left) {
-    lastSpoken = left;
-    announce(`${left === 60 ? "One minute" : "Ten seconds"} left.`);
+  timerEl.classList.toggle("paused", !running);
+  timerEl.classList.toggle("low", running && left <= 5);
+  const key = `${game.current}:${left}`;
+  if (running && (left === 10 || left === 5) && lastSpoken !== key) {
+    lastSpoken = key;
+    announce(`${left} seconds left.`);
   }
-  if (left <= 0 && phase !== "judging") endClimb("timeout");
+  if (running && left <= 0 && phase === "playing") expirePitch();
+}
+
+/* ---------- moving between pitches ---------- */
+
+let transitionTimer;
+let transitionEnds = 0;
+const TRANSITION_LEFT = () => Math.max(0, transitionEnds - performance.now());
+
+function scheduleNextPitch(delay = rules.TRANSITION_MS) {
+  clearTimeout(transitionTimer);
+  transitionEnds = performance.now() + delay;
+  transitionTimer = setTimeout(startPitch, delay);
+}
+
+// Starts the current pitch's clock and shows its clues. Its start is saved
+// first, so a refresh from here on can never give it a fresh 20 seconds.
+function startPitch() {
+  clearTimeout(transitionTimer);
+  if (!game || game.done || phase !== "feedback") return;
+  if (document.visibilityState === "hidden") return; // starts when the page is seen again
+  const i = game.current;
+  if (!Number.isFinite(game.pitchStarts[i])) {
+    game.pitchStarts[i] = nowMs();
+    save();
+  }
+  render();
+  input.focus({ preventScroll: true });
+  announce(`${rules.THEMES[i]}. ${rules.PITCH_SECONDS} seconds.`);
+}
+
+// The current pitch's time is up: it keeps its best try and the climb moves on.
+// A guess sent in time is still judged first (phase "judging" waits for it).
+function expirePitch({ quiet = false } = {}) {
+  if (!game?.startedAt || game.done || phase === "judging") return false;
+  const d = deadline();
+  if (d === null || !rules.pitchExpired(game, nowMs())) return false;
+  const i = game.current;
+  closeStep(d, true);
+  if (quiet) return true;
+  input.value = "";
+  formMsg.textContent = "";
+  afterStep(i, true);
+  return true;
 }
 
 /* ---------- altitude and mountain ---------- */
@@ -359,6 +427,14 @@ function render() {
     renderReady();
     return;
   }
+  // Between pitches (for example after a refresh during the transition):
+  // show the last result, then start the next pitch.
+  if (!Number.isFinite(game.pitchStarts[game.current])) {
+    setPhase("feedback");
+    if (game.current > 0) renderFeedback(game.current - 1, step(game.current - 1).timedOut);
+    scheduleNextPitch(game.current > 0 ? rules.TRANSITION_MS : 0);
+    return;
+  }
   setPhase("playing");
   renderKeyboard();
   game.current < 4 ? renderPitch(game.current) : renderSummit();
@@ -372,7 +448,7 @@ function renderReady() {
       <p class="ready-kicker">Today's climb</p>
       <h2 id="readyTitle">${esc(puzzle.name)}</h2>
       <ol class="theme-list">${rules.THEMES.map((t, i) => `<li><span>${i + 1}</span>${t}</li>`).join("")}</ol>
-      <p class="ready-rules">Five pitches, ${rules.formatClock(rules.CLIMB_SECONDS)} minutes, one climb a day. Every real word earns height, and rarer words that fit the clues climb highest. The summit is ${fmt(rules.SUMMIT_HEIGHT)} m.</p>
+      <p class="ready-rules">Five pitches, ${rules.PITCH_SECONDS} seconds each, one climb a day. Every real word earns height, and rarer words that fit the clues climb highest. The summit is ${fmt(rules.SUMMIT_HEIGHT)} m.</p>
       <button class="btn primary begin" type="button" id="beginBtn">Begin climb</button>
       ${s.streak ? `<p class="ready-streak">You're on a ${s.streak}-day streak.</p>` : ""}
     </section>`;
@@ -382,12 +458,12 @@ function renderReady() {
 function beginClimb() {
   if (phase !== "ready" || game.startedAt) return;
   game.startedAt = nowMs();
-  game.deadline = game.startedAt + rules.CLIMB_SECONDS * 1000;
+  game.pitchStarts = [game.startedAt, null, null, null, null];
   store.recordAttempt(n, game.startedAt);
   save();
   render();
   input.focus({ preventScroll: true });
-  announce(`Climb started. ${rules.CLIMB_SECONDS / 60} minutes on the clock. ${rules.THEMES[0]}.`);
+  announce(`Climb started. ${rules.THEMES[0]}, ${rules.PITCH_SECONDS} seconds.`);
 }
 
 function chipsHtml(t, i) {
@@ -480,6 +556,10 @@ function outcomeHtml(i) {
   const s = step(i);
   const answer = esc(target(i).answer);
   const pts = `+${fmt(s.points)} m`;
+  if (!s.guesses.length) {
+    const rope = i < 4 ? `<p class="rope-note"><strong>${answer}</strong> ${i < 3 ? "goes up the rope as the next clue" : "was the rope word"}.</p>` : "";
+    return `<p class="outcome bad"><span aria-hidden="true">× </span>Time ran out before a word. +0 m.${i === 4 ? ` The summit word was ${answer}.` : ""}</p>${rope}`;
+  }
   if (i === 4) {
     return s.solved
       ? `<p class="outcome good"><span aria-hidden="true">✓ </span>${answer}. Summit word found, ${pts}.</p>`
@@ -493,15 +573,17 @@ function outcomeHtml(i) {
   return `${lead}${rope}<p class="rarest" id="rarest"></p>`;
 }
 
-function renderFeedback(i) {
-  const next = i < 4 ? rules.THEMES[i + 1] : "your results";
+function renderFeedback(i, timedOut = false) {
+  const last = i >= 4;
+  const next = last ? "your results" : rules.THEMES[i + 1];
   stage.innerHTML = `
     <section class="pitch feedback" aria-labelledby="pitchTitle">
-      ${pitchHead(i, "Done")}
+      ${pitchHead(i, timedOut ? "Out of time" : "Done")}
       ${i < 4 ? `<ul class="chips" aria-label="Clues">${chipsHtml(target(i), i)}</ul>` : ""}
       ${i < 4 ? step(i).guesses.map((g, k) => linkCardHtml(g, target(i), k)).join("") : ""}
       ${outcomeHtml(i)}
-      <div class="actions"><button class="btn primary" type="button" id="nextBtn">On to ${next}</button></div>
+      ${last ? "" : `<p class="next-note">${esc(next)} starts in a moment, with a fresh ${rules.PITCH_SECONDS} seconds.</p>`}
+      <div class="actions"><button class="btn primary" type="button" id="nextBtn">${last ? `On to ${next}` : `Start ${esc(next)} now`}</button></div>
     </section>`;
   const nextBtn = $("#nextBtn");
   nextBtn.addEventListener("click", continueClimb);
@@ -517,9 +599,9 @@ function renderFeedback(i) {
 
 function continueClimb() {
   if (phase !== "feedback") return;
+  if (!game.done) return startPitch();
   render();
-  if (!game.done) input.focus({ preventScroll: true });
-  else $("#resultTitle")?.focus({ preventScroll: true });
+  $("#resultTitle")?.focus({ preventScroll: true });
 }
 
 /* ---------- results (today's, or a past day from the calendar) ---------- */
@@ -531,7 +613,8 @@ function resultsHtml(g, p, num, { live = false } = {}) {
   const summary = store.summary(today);
   const pitchesDone = [...g.pitches, g.summit].filter((s) => s.done && s.guesses.length).length;
   const accepted = [...g.pitches, g.summit].reduce((sum, s) => sum + s.guesses.length, 0);
-  const time = g.startedAt ? Math.min(rules.CLIMB_SECONDS, Math.round(((g.endedAt || g.deadline) - g.startedAt) / 1000)) : 0;
+  const time = rules.climbSeconds(g);
+  const outOfTime = [...g.pitches, g.summit].filter((s) => s.timedOut).length;
   const fits = res.slice(0, 4).filter((r) => r === "fit").length;
   const partials = res.slice(0, 4).filter((r) => r === "partial").length;
   const isBest = live && summary.best === metres && summary.completed > 1;
@@ -541,7 +624,7 @@ function resultsHtml(g, p, num, { live = false } = {}) {
     const answer = (i < 4 ? p.pitches[i] : p.summit).answer;
     let word, how;
     if (!s.done || !s.guesses.length) {
-      word = "Not reached";
+      word = s.done ? "No word" : "Not reached";
       how = `time ran out. The ${i < 4 ? "rope word" : "summit word"} was ${answer}`;
     } else if (i === 4) {
       word = g.summit.solved ? answer : s.guesses.at(-1).word;
@@ -553,6 +636,7 @@ function resultsHtml(g, p, num, { live = false } = {}) {
       how = { fit: "fits every clue", partial: `links ${b.linked.join(" and ")} only`, near: "close to the best word", foothold: "a foothold" }[kind];
       if (b.linked.length) how += `, ${rules.rarityLabel(b.zipf).toLowerCase()}`;
     }
+    if (s.timedOut && s.guesses.length) how += ", then time ran out";
     return `<li class="${res[i] || "none"}"><span class="r-name">${rules.THEMES[i]}</span><span class="r-word">${esc(word)}</span><span class="r-how">${esc(how)}</span><span class="r-pts">${fmt(s.points)} m</span></li>`;
   }).join("");
 
@@ -561,7 +645,7 @@ function resultsHtml(g, p, num, { live = false } = {}) {
       <p class="result-kicker">${esc(p.name)}, No. ${num}, ${esc(formatKey(keyForNumber(num)))}</p>
       <h2 class="result-tier" id="resultTitle" tabindex="-1">${reached ? "Summit reached" : `Finished at ${fmt(metres)} m`}</h2>
       <p class="result-sub">${reached ? `${fmt(metres)} m, an exceptional climb.` : `${fmt(rules.SUMMIT_HEIGHT - metres)} m short of the summit. ${rules.tierFor(metres)}.`}
-        ${g.endReason === "timeout" ? " Time ran out." : ""}${isBest ? " <strong>New personal best.</strong>" : ""}</p>
+        ${g.endReason === "timeout" ? " Time ran out." : outOfTime ? ` Time ran out on ${outOfTime} pitch${outOfTime === 1 ? "" : "es"}.` : ""}${isBest ? " <strong>New personal best.</strong>" : ""}</p>
       <dl class="figures">
         <div><dt>Pitches</dt><dd>${pitchesDone}/5</dd></div>
         <div><dt>Time</dt><dd>${rules.formatClock(time)}</dd></div>
@@ -680,7 +764,7 @@ function showFormMsg(text, kind = "warn") {
 async function submit() {
   if (phase !== "playing") return;
   const submittedAt = nowMs();
-  if (submittedAt >= game.deadline) return endClimb("timeout");
+  if (deadline() === null || rules.pitchExpired(game, submittedAt)) return expirePitch();
   const parsed = rules.normaliseGuess(input.value);
   if (parsed.error) return showFormMsg(parsed.error);
   const word = parsed.word;
@@ -688,7 +772,7 @@ async function submit() {
   const s = step();
   const t = target();
   if (s.guesses.some((g) => g.word === word)) return showFormMsg(`You've already tried ${word} here.`);
-  if (i < 4 && t.clues.includes(word)) return showFormMsg("That's one of the clues. Find a word that joins them.");
+  if (i < 4 && t.clues.includes(word)) return showFormMsg("That's one of the clues. Find a word that links them.");
 
   const forDay = n;
   const forStep = i;
@@ -696,18 +780,17 @@ async function submit() {
   const verdict = i < 4 ? await judgeLink(word, t.clues, t.answer) : await judgeSummit(word, t.answer, t.clues.at(-1));
   if (n !== forDay || game.current !== forStep || phase !== "judging") return;
 
-  if (verdict.error) {
+  // A refused or unjudged word never stops the clock and never adds time.
+  if (verdict.error || verdict.unknown) {
+    if (verdict.unknown) {
+      game.rejected = (game.rejected || 0) + 1;
+      save();
+    }
     setPhase("playing");
-    showFormMsg(ERROR_TEXT[verdict.error] || ERROR_TEXT.down, "error");
-    if (nowMs() >= game.deadline) endClimb("timeout");
-    return;
-  }
-  if (verdict.unknown) {
-    game.rejected = (game.rejected || 0) + 1;
-    save();
-    setPhase("playing");
-    showFormMsg(`${word} isn't a word we know. Check the spelling. Your try wasn't used.`);
-    if (nowMs() >= game.deadline) endClimb("timeout");
+    if (expirePitch()) return;
+    showFormMsg(verdict.error
+      ? ERROR_TEXT[verdict.error] || ERROR_TEXT.down
+      : `${word} isn't a word we know. Check the spelling. Your try wasn't used.`, verdict.error ? "error" : "warn");
     return;
   }
 
@@ -721,10 +804,10 @@ async function submit() {
     s.points = rules.bestGuess(s.guesses).points;
     const kind = rules.holdKind(verdict.linked.length, t.clues.length, verdict.near);
     announce(`${word}: ${{ fit: "fits", partial: `links ${verdict.linked.join(" and ")}`, near: "close to the best word", foothold: "a foothold" }[kind]}. Plus ${points} metres.`);
-    if (kind === "fit" || s.guesses.length >= rules.PITCH_TRIES) return finishStep();
+    if (kind === "fit" || s.guesses.length >= rules.PITCH_TRIES) return finishStep(submittedAt);
     save();
-    if (nowMs() >= game.deadline) return endClimb("timeout");
     setPhase("playing");
+    if (expirePitch()) return;
     renderPitch(i);
     input.focus({ preventScroll: true });
     return;
@@ -733,13 +816,13 @@ async function submit() {
   s.guesses.push({ word, exact: verdict.exact, near: Boolean(verdict.near), close: verdict.close || 0 });
   if (verdict.exact) {
     s.solved = true;
-    return finishStep();
+    return finishStep(submittedAt);
   }
-  if (s.guesses.length >= rules.SUMMIT_TRIES) return finishStep();
+  if (s.guesses.length >= rules.SUMMIT_TRIES) return finishStep(submittedAt);
   save();
-  if (nowMs() >= game.deadline) return endClimb("timeout");
-  announce(`${word} isn't it.${verdict.near ? " Close, though." : ""} A clearer clue is showing.`);
   setPhase("playing");
+  if (expirePitch()) return;
+  announce(`${word} isn't it.${verdict.near ? " Close, though." : ""} A clearer clue is showing.`);
   renderSummit();
   input.focus({ preventScroll: true });
 }
@@ -750,68 +833,69 @@ function scoreStep(i) {
   else s.points = rules.summitPoints(s.solved, s.guesses.length, s.guesses.filter((g) => !g.exact));
 }
 
-// Ends the current pitch exactly once and saves in one write.
-function finishStep() {
-  if (phase !== "playing" && phase !== "judging") return;
+// Ends the current step exactly once, as of time `at`, and saves in one write.
+// After the summit, the climb is finished.
+function closeStep(at, timedOut) {
   const i = game.current;
   const s = step(i);
-  if (s.done || game.done) return;
+  if (s.done || game.done) return false;
   s.done = true;
+  s.endedAt = at;
+  if (timedOut) s.timedOut = true;
   scoreStep(i);
   game.current = i + 1;
-  if (game.current > 4) return endClimb("finished", { fromStep: i });
-  save();
-  setPhase("feedback");
-  renderTrack();
-  renderFeedback(i);
-  drawClimb(true);
-  setAltitude(game.metres);
-  announce(`${rules.THEMES[i]} done. ${game.metres} metres. Next, ${rules.THEMES[i + 1]}.`);
+  if (game.current > 4) finishClimb(at);
+  else save();
+  return true;
 }
 
-// Ends the day's climb: all five pitches done, or the timer ran out.
-// A pitch in progress keeps its best try. Writes the day's result once.
-function endClimb(reason, { fromStep = null, quiet = false } = {}) {
-  if (game.done) return;
-  if (reason === "timeout") {
-    const i = game.current;
-    if (i <= 4 && step(i).guesses.length && !step(i).done) {
-      step(i).done = true;
-      scoreStep(i);
-      game.current = i + 1;
-    }
+// The player finished the pitch: a fit, out of tries, or "keep and move on".
+function finishStep(at = nowMs()) {
+  if (phase !== "playing" && phase !== "judging") return;
+  const i = game.current;
+  const d = deadline();
+  if (!closeStep(d === null ? at : Math.min(at, d), false)) return;
+  afterStep(i, false);
+}
+
+// Shows a finished step's result. The next pitch starts after the transition.
+function afterStep(i, timedOut) {
+  renderTrack();
+  drawClimb(true);
+  setAltitude(game.metres);
+  if (game.done) {
+    setPhase("feedback");
+    timerEl.hidden = true;
+    renderFeedback(i, timedOut);
+    announce(rules.summitReached(game.metres) ? "Summit reached." : `Climb over at ${game.metres} metres.`);
+    return;
   }
+  setPhase("feedback");
+  renderFeedback(i, timedOut);
+  scheduleNextPitch();
+  announce(`${rules.THEMES[i]} ${timedOut ? "out of time" : "done"}. ${game.metres} metres. Next, ${rules.THEMES[i + 1]}.`);
+}
+
+// All five steps are done: write the day's result once.
+function finishClimb(at) {
+  if (game.done) return;
   game.done = true;
-  game.endReason = reason;
-  game.endedAt = reason === "timeout" ? game.deadline : Math.min(nowMs(), game.deadline);
+  game.endReason = "finished";
+  game.endedAt = at;
   save();
   const res = resultsFor(game, puzzle);
   store.recordResult(n, {
     metres: game.metres,
     summitWord: game.summit.solved,
     pitches: [...game.pitches, game.summit].filter((s) => s.done && s.guesses.length).length,
-    time: Math.round((game.endedAt - game.startedAt) / 1000),
+    time: rules.climbSeconds(game),
     accepted: [...game.pitches, game.summit].reduce((sum, s) => sum + s.guesses.length, 0),
     rejected: game.rejected || 0,
     fits: res.slice(0, 4).filter((r) => r === "fit").length,
     partials: res.slice(0, 4).filter((r) => r === "partial").length,
-    endReason: reason,
+    endReason: "finished",
   });
   stopTimer();
-  if (quiet) return;
-  renderTrack();
-  drawClimb(true);
-  setAltitude(game.metres);
-  if (fromStep !== null) {
-    setPhase("feedback");
-    timerEl.hidden = true;
-    renderFeedback(fromStep);
-  } else {
-    toast("Time's up. Your climb is saved.");
-    render();
-    $("#resultTitle")?.focus({ preventScroll: true });
-  }
-  announce(rules.summitReached(game.metres) ? "Summit reached." : `Climb over at ${game.metres} metres.`);
 }
 
 /* ---------- dialogs ---------- */

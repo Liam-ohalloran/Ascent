@@ -98,15 +98,32 @@ test("sharesRoot spots the same root, not chance overlaps", () => {
   assert.ok(!r.sharesRoot("CAT", "CATS"), "too short to judge");
 });
 
-test("climb clock", () => {
-  assert.equal(r.CLIMB_SECONDS, 360);
-  const game = { deadline: 1_000_000 + 360_000 };
-  assert.equal(r.secondsLeft(game, 1_000_000), 360);
-  assert.equal(r.secondsLeft(game, 1_000_000 + 359_001), 1);
+test("pitch clock: 20 seconds from the pitch's own start, nothing stored is trusted", () => {
+  assert.equal(r.PITCH_SECONDS, 20);
+  const game = { current: 1, pitchStarts: [1_000_000, 1_050_000, null, null, null], deadline: 9e12 };
+  assert.equal(r.pitchDeadline(game), 1_050_000 + 20_000, "a stored deadline is ignored");
+  assert.equal(r.secondsLeft(game, 1_050_000), 20);
+  assert.equal(r.secondsLeft(game, 1_050_000 + 19_001), 1);
   assert.equal(r.secondsLeft(game, 2_000_000), 0);
-  assert.equal(r.formatClock(360), "6:00");
+  assert.equal(r.secondsLeft(game, 1_050_000 - 1_000), 20, "a small clock correction is fine");
+  assert.equal(r.secondsLeft(game, 1_000_000), 0, "a clock set well back ends the pitch, it can't add time");
+  assert.equal(r.pitchExpired(game, 1_000_000), true);
+  assert.equal(r.pitchExpired(game, 1_060_000), false);
+  assert.equal(r.pitchDeadline({ ...game, current: 2 }), null, "the next pitch hasn't started");
+  assert.equal(r.formatClock(20), "0:20");
   assert.equal(r.formatClock(65), "1:05");
   assert.equal(r.formatClock(-4), "0:00");
+});
+
+test("climb time adds each pitch's time, capped, without the transitions", () => {
+  const step = (endedAt) => ({ done: true, endedAt, guesses: [] });
+  const g = {
+    pitchStarts: [0, 30_000, 60_000, 90_000, 120_000].map((x) => 1e12 + x),
+    pitches: [step(1e12 + 5_000), step(1e12 + 50_000), step(1e12 + 60_000 + 999_999), { done: true, guesses: [] }],
+    summit: step(1e12 + 125_000),
+  };
+  // 5 + 20 + 20 (capped) + 20 (no end: timed out) + 5
+  assert.equal(r.climbSeconds(g), 70);
 });
 
 test("normaliseGuess handles the input cases from the audit", () => {

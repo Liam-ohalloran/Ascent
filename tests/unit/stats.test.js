@@ -100,7 +100,32 @@ test("validateGame rejects impossible states", () => {
   const timedOut = store.validateGame(game({ endReason: "timeout", summit: { guesses: [], done: false, solved: false, points: 0 } }));
   assert.equal(timedOut.done, true, "a timed-out climb stays over");
   const tampered = store.validateGame(game({ deadline: START + 99999999 }));
-  assert.equal(tampered.deadline, START + 360000, "the deadline is always start + 6 minutes");
+  assert.equal(tampered.deadline, undefined, "a stored deadline is dropped, never trusted");
+});
+
+test("validateGame keeps per-pitch starts only when they make sense", () => {
+  const live = (pitchStarts) => store.validateGame(game({
+    current: 1, done: false, endReason: null, pitchStarts,
+    pitches: [{ guesses: [], done: true, points: 0, timedOut: true, endedAt: START + 20000 },
+      ...[1, 2, 3].map(() => ({ guesses: [], done: false, points: 0 }))],
+    summit: { guesses: [], done: false, solved: false, points: 0 },
+  }));
+  const ok = live([START, START + 21600, null, null, null]);
+  assert.deepEqual(ok.pitchStarts, [START, START + 21600, null, null, null]);
+  assert.equal(ok.pitches[0].timedOut, true);
+  assert.equal(ok.pitches[0].endedAt, START + 20000);
+  assert.equal(live([START, START - 5000, null, null, null]), null, "a start before the last one is impossible");
+  assert.deepEqual(live([START, START + 21600, START + 50000, null, null]).pitchStarts.slice(2), [null, null, null],
+    "a future pitch can't have started");
+});
+
+test("a climb begun under the old six-minute clock gains no time", () => {
+  const old = store.validateGame(game({
+    current: 2, done: false, endReason: null, deadline: START + 360000,
+    pitches: [0, 1].map(() => ({ guesses: [], done: true, points: 0 })).concat([2, 3].map(() => ({ guesses: [], done: false, points: 0 }))),
+    summit: { guesses: [], done: false, solved: false, points: 0 },
+  }));
+  assert.equal(old.pitchStarts[2], START, "its current pitch counts from when the climb began");
 });
 
 test("a climb can be begun once per day", () => {
