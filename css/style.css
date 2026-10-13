@@ -194,6 +194,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   stroke-width: 3.2;
   stroke-linecap: round;
 }
+.rope.part { stroke-width: 2.2; stroke-opacity: 0.75; }
 .rope.slip {
   stroke: var(--slip);
   stroke-dasharray: 3 5;
@@ -245,12 +246,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .pitch-head h2 span { color: var(--mist); font-weight: 500; }
 
-.tries { display: flex; gap: 0.35rem; }
-.try {
-  width: 0.65rem; height: 0.65rem; border-radius: 50%;
-  border: 2px solid var(--ink);
-}
-.try.used { background: var(--slip); border-color: var(--slip); }
+.try-note { color: var(--rock); font-weight: 700; font-size: 0.85rem; }
 
 .prompt { margin: 0.15rem 0 0.75rem; color: var(--rock); }
 
@@ -321,65 +317,84 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .def.locked::before { color: var(--mist); }
 
-/* ---------- tiles ---------- */
+/* ---------- typing line ---------- */
 
-.tiles {
-  --gap: clamp(2px, 1vw, 6px);
-  display: grid;
-  grid-template-columns: repeat(var(--len), minmax(0, 3.1rem));
-  justify-content: start;
-  gap: var(--gap);
-  margin-bottom: 0.75rem;
-}
-
-.tile {
-  aspect-ratio: 5 / 6;
-  display: grid;
-  place-items: center;
+.entry {
+  display: flex;
+  align-items: center;
+  min-height: 4rem;
+  margin: 0.25rem 0 0.75rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 3px solid var(--rope);
   font-family: var(--display);
   font-weight: 900;
-  font-size: clamp(1rem, 6.5vw, 2rem);
-  border-bottom: 3px solid var(--line);
-  background: var(--paper);
-  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  font-size: clamp(2.2rem, 9vw, 3.2rem);
+  letter-spacing: 0.05em;
+  line-height: 1;
+  overflow: hidden;
 }
-.tile.filled { border-bottom-color: var(--ink); }
-.tile.fixed { color: var(--rope); border-bottom-color: var(--rope); }
-.tile.cursor { border-bottom-color: var(--rope); }
+.entry .fixed { color: var(--rope); }
+.entry .placeholder {
+  font-family: var(--body);
+  font-weight: 400;
+  font-size: 1rem;
+  letter-spacing: 0;
+  color: var(--mist);
+  order: 2;
+  margin-left: 0.5rem;
+}
+.entry .caret {
+  width: 3px;
+  height: 0.85em;
+  margin-left: 2px;
+  background: var(--rope);
+  animation: blink 1.1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.entry.judging { border-bottom-color: var(--line); }
+.entry .checking {
+  font-family: var(--body);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+  color: var(--rock);
+  margin-left: 0.75rem;
+}
 
-.tiles.solved .tile {
-  background: var(--ok);
-  color: #fff;
-  border-bottom-color: var(--ok);
-  animation: lift 0.45s backwards;
-}
-.tiles.slipped .tile {
-  color: var(--slip);
-  border-bottom-color: var(--slip);
-}
-.tiles.solved .tile:nth-child(2) { animation-delay: .04s; }
-.tiles.solved .tile:nth-child(3) { animation-delay: .08s; }
-.tiles.solved .tile:nth-child(4) { animation-delay: .12s; }
-.tiles.solved .tile:nth-child(5) { animation-delay: .16s; }
-.tiles.solved .tile:nth-child(6) { animation-delay: .2s; }
-.tiles.solved .tile:nth-child(n+7) { animation-delay: .24s; }
-
-@keyframes lift {
-  from { transform: translateY(8px); opacity: 0.4; }
-}
-
-.tiles.shake { animation: shake 0.36s; }
+.entry.shake { animation: shake 0.36s; }
 @keyframes shake {
   20%, 60% { transform: translateX(-6px); }
   40%, 80% { transform: translateX(6px); }
 }
 
-.misses { margin: 0 0 0.5rem; color: var(--mist); font-weight: 700; display: flex; flex-wrap: wrap; gap: 0.6rem; }
-.misses s { text-decoration-color: var(--slip); text-decoration-thickness: 2px; }
+/* ---------- guess results ---------- */
 
-.hint-note { margin: 0; color: var(--rock); font-size: 0.9rem; }
+.guess-card {
+  margin: 0 0 0.6rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--paper);
+  border-left: 4px solid var(--rope);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  animation: lift 0.35s ease-out;
+}
+.guess-card.zero { border-left-color: var(--slip); }
+.g-top { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+.g-word { font-family: var(--display); font-weight: 700; font-size: 1.5rem; letter-spacing: 0.04em; }
+.g-pts { font-weight: 700; color: var(--ok); white-space: nowrap; }
+.guess-card.zero .g-pts { color: var(--slip); }
+.g-why { margin: 0.1rem 0 0; color: var(--rock); font-size: 0.92rem; }
 
-.outcome { margin: 0.25rem 0 0; font-weight: 700; }
+@keyframes lift { from { transform: translateY(6px); opacity: 0; } }
+
+.near { list-style: none; margin: 0 0 0.5rem; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }
+.near li { font-family: var(--display); font-weight: 700; font-size: 1.2rem; color: var(--mist); text-decoration: line-through; text-decoration-color: var(--slip); }
+.near li.close { color: var(--ink); text-decoration: none; }
+.near li span { display: inline-block; font-family: var(--body); font-size: 0.75rem; font-weight: 700; margin-left: 0.35rem; color: var(--rock); }
+.near li.close span { color: var(--rope); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.outcome { margin: 0.5rem 0 0; font-weight: 700; }
 .outcome.good { color: var(--ok); }
 .outcome.bad { color: var(--slip); }
 
@@ -396,8 +411,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn.primary:hover { background: var(--rope); border-color: var(--rope); color: #fff; }
 .btn.ghost { border-color: var(--line); }
 .btn.ghost:hover { border-color: var(--ink); }
-.btn.hint { padding: 0.35rem 0.9rem; font-size: 0.9rem; }
-.btn.hint span { color: var(--rope); margin-left: 0.25rem; }
+.btn .note { color: var(--rope); margin-left: 0.25rem; }
+.btn.primary .note { color: var(--rope-soft); }
 
 /* ---------- keyboard ---------- */
 
@@ -450,7 +465,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   letter-spacing: 0.03em;
 }
 .chain .seed { color: var(--rock); }
-.chain .arrow { color: var(--rope); transform: rotate(90deg); display: inline-block; }
+.chain .arrow { color: var(--rope); }
+.chain .link.slip { color: var(--slip); }
 .chain .peak {
   color: var(--paper);
   background: var(--rope);
@@ -479,8 +495,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .r-word { grid-area: word; font-family: var(--display); font-weight: 700; font-size: 1.15rem; letter-spacing: 0.03em; }
 .r-how { grid-area: how; color: var(--mist); font-size: 0.85rem; }
 .r-pts { grid-area: pts; align-self: center; font-weight: 700; font-variant-numeric: tabular-nums; }
-.breakdown .miss .r-word { color: var(--slip); }
-.breakdown .ok .r-pts { color: var(--ok); }
+.breakdown .slip .r-word { color: var(--slip); }
+.breakdown .clean .r-pts { color: var(--ok); }
 
 .result-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -654,7 +670,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
   .key { height: 3.1rem; max-width: 2.5rem; }
   .key.wide { max-width: 4rem; }
-  .chip { font-size: 1.6rem; }
+  .chip { font-size: 1.7rem; }
+  .pitch-head h2 { font-size: 2.4rem; }
+  .entry { font-size: 3.4rem; }
   .toast { top: 5.5rem; left: auto; right: 2rem; transform: translateY(-8px); }
   .toast.show { transform: none; }
 }

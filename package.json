@@ -1,0 +1,7 @@
+{
+  "name": "ascent",
+  "private": true,
+  "type": "module",
+  "description": "Ascent, a daily word climb. Static site plus one Vercel function (api/score.js).",
+  "engines": { "node": ">=20" }
+}

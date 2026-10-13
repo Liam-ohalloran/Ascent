@@ -2,12 +2,21 @@ import { todayNumber, dateForNumber, puzzleFor, msUntilTomorrow, formatDate } fr
 import { drawMountain, updateClimb } from "./climb.js";
 import * as store from "./stats.js";
 import { shareText, share } from "./share.js";
+import { judgeLink, judgeSummit } from "./judge.js";
 
-const PITCH_POINTS = [1000, 700, 400];
-const SUMMIT_POINTS = [1000, 750, 500, 250];
-const HINT_COST = 200;
-const PITCH_TRIES = PITCH_POINTS.length;
+// Scoring. A link pitch is worth up to 1,000 m, split across its clues:
+// every clue your word genuinely links earns its share. You get two tries
+// and keep the better one. The second try is worth 70%.
+const PITCH_MAX = 1000;
+const SECOND_TRY = 0.7;
+const PITCH_TRIES = 2;
+// The summit is exact-word only, worth less with each clue revealed.
+// Near-misses don't solve it, but the closest one earns a little height.
+const SUMMIT_POINTS = [1000, 700, 400];
 const SUMMIT_TRIES = SUMMIT_POINTS.length;
+const NEAR_MISS_MAX = 300;
+const HINT_COST = 200;
+const MAX_LEN = 16;
 
 const $ = (sel) => document.querySelector(sel);
 const stage = $("#stage");
@@ -24,43 +33,39 @@ let locked = false;
 /* ---------- state ---------- */
 
 function freshStep() {
-  return { guesses: [], hint: false, solved: false, done: false, points: 0 };
+  return { guesses: [], hint: false, done: false, points: 0, solved: false };
 }
 
 function freshGame() {
-  return {
-    current: 0,
-    pitches: [0, 1, 2, 3].map(freshStep),
-    summit: freshStep(),
-    metres: 0,
-    done: false,
-  };
+  return { current: 0, pitches: [0, 1, 2, 3].map(freshStep), summit: freshStep(), metres: 0, done: false };
 }
 
-function step(i = game.current) {
-  return i < 4 ? game.pitches[i] : game.summit;
+const step = (i = game.current) => (i < 4 ? game.pitches[i] : game.summit);
+const target = (i = game.current) => (i < 4 ? puzzle.pitches[i] : puzzle.summit);
+const normalise = (w) => w.toUpperCase().replace(/[^A-Z]/g, "");
+const round10 = (x) => Math.round(x / 10) * 10;
+
+function linkPoints(linkedCount, total, tryIndex, hint) {
+  if (!linkedCount) return 0;
+  const base = PITCH_MAX * (linkedCount / total) * (tryIndex === 0 ? 1 : SECOND_TRY);
+  return Math.max(50, round10(base - (hint ? HINT_COST : 0)));
 }
 
-function target(i = game.current) {
-  return i < 4 ? puzzle.pitches[i] : puzzle.summit;
+function best(s) {
+  return s.guesses.reduce((b, g) => (g.points > (b?.points ?? -1) ? g : b), null);
 }
 
-function triesFor(i) {
-  return i < 4 ? PITCH_TRIES : SUMMIT_TRIES;
-}
-
-function normalise(word) {
-  return word.toUpperCase().replace(/[^A-Z]/g, "");
-}
-
-function isCorrect(guess, t) {
-  return [t.answer, ...t.alt].map(normalise).includes(guess);
+// "full" = every clue linked, "part" = some, "slip" = none.
+function stepResult(s, i) {
+  if (!s.done) return null;
+  if (i === 4) return s.solved ? "clean" : "slip";
+  const b = best(s);
+  if (!b || !b.linked.length) return "slip";
+  return b.linked.length === target(i).clues.length ? "clean" : "part";
 }
 
 function climbResults() {
-  return [...game.pitches, game.summit].map((s) =>
-    s.done ? (s.solved ? "clean" : "slip") : null
-  );
+  return [...game.pitches, game.summit].map((s, i) => stepResult(s, i));
 }
 
 function climbWords() {
@@ -77,8 +82,8 @@ function loadDay(num) {
   n = num;
   puzzle = puzzleFor(n);
   game = store.getGame(n) || freshGame();
-  entry = startingEntry();
   locked = false;
+  entry = startingEntry();
 
   const label = n === today ? "Today's mountain" : "Replay";
   $("#dayLine").textContent = `No. ${n}, ${formatDate(dateForNumber(n))}. ${label}.`;
@@ -91,8 +96,7 @@ function loadDay(num) {
 
 function startingEntry() {
   if (game.done) return "";
-  const s = step();
-  return s.hint ? normalise(target().answer)[0] : "";
+  return step().hint ? normalise(target().answer)[0] : "";
 }
 
 /* ---------- altitude ---------- */
@@ -102,8 +106,7 @@ function setAltitude(metres, animate = true) {
   const numEl = $("#altNum");
   const from = Number(numEl.dataset.value || 0);
   numEl.dataset.value = metres;
-  const tier = store.tierFor(metres, game.summit.solved);
-  $("#altTier").textContent = tier;
+  $("#altTier").textContent = store.tierFor(metres, game.summit.solved);
 
   cancelAnimationFrame(altFrame);
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -112,11 +115,9 @@ function setAltitude(metres, animate = true) {
     return;
   }
   const start = performance.now();
-  const dur = 900;
   const tick = (t) => {
-    const k = Math.min(1, (t - start) / dur);
-    const eased = 1 - Math.pow(1 - k, 3);
-    numEl.textContent = Math.round(from + (metres - from) * eased).toLocaleString();
+    const k = Math.min(1, (t - start) / 900);
+    numEl.textContent = Math.round(from + (metres - from) * (1 - Math.pow(1 - k, 3))).toLocaleString();
     if (k < 1) altFrame = requestAnimationFrame(tick);
   };
   altFrame = requestAnimationFrame(tick);
@@ -137,140 +138,165 @@ function render() {
   const i = game.current;
   document.body.classList.toggle("at-summit", i === 4);
   i < 4 ? renderPitch(i) : renderSummit();
-  keepTilesInView();
+  keepEntryInView();
 }
 
-// The clue area scrolls on short screens. Keep the answer row visible.
-function keepTilesInView() {
-  const tiles = stage.querySelector(".tiles");
-  if (!tiles) return;
-  const top = tiles.offsetTop - stage.offsetTop;
-  const bottom = top + tiles.offsetHeight + 48;
-  if (bottom > stage.scrollTop + stage.clientHeight) {
-    stage.scrollTop = bottom - stage.clientHeight;
-  } else if (top < stage.scrollTop) {
-    stage.scrollTop = top - 16;
+// The play area scrolls on short screens. Keep the typing line visible.
+function keepEntryInView() {
+  const el = stage.querySelector(".entry");
+  if (!el) return;
+  const top = el.offsetTop - stage.offsetTop;
+  const bottom = top + el.offsetHeight + 64;
+  if (bottom > stage.scrollTop + stage.clientHeight) stage.scrollTop = bottom - stage.clientHeight;
+  else if (top < stage.scrollTop) stage.scrollTop = top - 16;
+}
+
+function entryHtml(state = "") {
+  const s = step();
+  if (state === "judging") {
+    return `<div class="entry judging" aria-live="polite"><span class="typed">${entry}</span><span class="checking">Checking the hold…</span></div>`;
   }
+  const fixed = s.hint && entry ? `<span class="fixed">${entry[0]}</span>` : "";
+  const rest = s.hint ? entry.slice(1) : entry;
+  const empty = !entry ? `<span class="placeholder">Type a word</span>` : "";
+  return `<div class="entry" role="textbox" aria-label="Your word" aria-readonly="true">${fixed}<span class="typed">${rest}</span>${empty}<span class="caret" aria-hidden="true"></span></div>`;
 }
 
-function tilesHtml(answer, s, state = "") {
-  const len = answer.length;
-  let html = `<div class="tiles ${state}" style="--len:${len}" role="group" aria-label="${len} letter answer">`;
-  for (let k = 0; k < len; k++) {
-    const ch = state ? answer[k] : entry[k] || "";
-    const fixed = s.hint && k === 0 ? " fixed" : "";
-    const cursor = !state && k === entry.length ? " cursor" : "";
-    html += `<span class="tile${ch ? " filled" : ""}${fixed}${cursor}">${ch}</span>`;
-  }
-  return html + "</div>";
-}
-
-function triesHtml(s, max) {
-  let dots = "";
-  for (let k = 0; k < max; k++) {
-    dots += `<span class="try${k < s.guesses.length ? " used" : ""}"></span>`;
-  }
-  const left = max - s.guesses.length;
-  return `<span class="tries" aria-label="${left} guess${left === 1 ? "" : "es"} left">${dots}</span>`;
-}
-
-function missesHtml(s) {
-  if (!s.guesses.length) return "";
-  return `<p class="misses"><span class="sr">Wrong guesses:</span>${s.guesses
-    .map((g) => `<s>${g}</s>`)
-    .join(" ")}</p>`;
-}
-
-function hintHtml(s) {
-  if (s.hint) return `<p class="hint-note">First letter shown, ${HINT_COST} m off this pitch.</p>`;
-  return `<button class="btn ghost hint" id="hintBtn">Show first letter <span>−${HINT_COST} m</span></button>`;
-}
-
-function renderPitch(i, outcome) {
-  const s = game.pitches[i];
-  const t = puzzle.pitches[i];
-  const chips = t.clues
+function chipsHtml(t, i) {
+  return t.clues
     .map((c, k) => {
       const carried = k === 0 && t.carried;
       return `<li class="chip${carried ? " carried" : ""}">${
-        carried ? `<span class="rope-tag" aria-label="carried up from pitch ${i}"></span>` : ""
+        carried ? `<span class="rope-tag" aria-label="carried up the rope from pitch ${i}"></span>` : ""
       }${c}</li>`;
     })
     .join('<li class="plus" aria-hidden="true">+</li>');
+}
 
-  const prompt = t.clues.length === 2 ? "Find the word that links both clues." : "Find the word that links all three clues.";
+function linkCardHtml(g, t) {
+  const total = t.clues.length;
+  const missed = t.clues.filter((c) => !g.linked.includes(c));
+  let why;
+  if (g.linked.length === total) why = total === 2 ? "Links both clues." : "Links all three clues.";
+  else if (!g.linked.length) why = `Doesn't link ${t.clues.join(" or ")}.`;
+  else why = `Holds on ${g.linked.join(" and ")}. Doesn't link ${missed.join(" or ")}.`;
+  if (g.unchecked) why += " The judge couldn't be reached, so only dictionary links counted.";
+  const pts = g.points ? `+${g.points.toLocaleString()} m` : "0 m";
+  return `<div class="guess-card${g.points ? "" : " zero"}">
+      <div class="g-top"><span class="g-word">${g.word}</span><span class="g-pts">${pts}</span></div>
+      <p class="g-why">${why}</p>
+    </div>`;
+}
+
+function hintBtnHtml(s) {
+  if (s.hint) return "";
+  return `<button class="btn ghost" id="hintBtn">First letter <span class="note">−${HINT_COST} m</span></button>`;
+}
+
+function renderPitch(i, outcome, judging = false) {
+  const s = game.pitches[i];
+  const t = puzzle.pitches[i];
+  const tryNo = s.guesses.length;
+  const note = outcome ? "" : tryNo === 0 ? "Two tries" : "Second try, worth 70%";
+  const prompt = t.clues.length === 2 ? "Find a word that links both clues." : "Find a word that links all three clues.";
+  const b = best(s);
+
+  let actions = "";
+  if (!outcome && !judging) {
+    const keep = tryNo > 0
+      ? `<button class="btn primary" id="keepBtn">${b.points ? `Keep ${b.points.toLocaleString()} m and climb` : "Climb on with 0 m"}</button>`
+      : "";
+    actions = `<div class="actions">${keep}${hintBtnHtml(s)}</div>`;
+  }
 
   stage.innerHTML = `
     <div class="pitch">
       <div class="pitch-head">
         <h2>Pitch ${i + 1} <span>of 5</span></h2>
-        ${triesHtml(s, PITCH_TRIES)}
+        <span class="try-note">${note}</span>
       </div>
       <p class="prompt">${prompt}</p>
-      <ul class="chips">${chips}</ul>
-      ${tilesHtml(normalise(t.answer), s, outcome)}
-      ${outcome ? outcomeHtml(i, outcome) : missesHtml(s) + hintHtml(s)}
+      <ul class="chips">${chipsHtml(t, i)}</ul>
+      ${s.guesses.map((g) => linkCardHtml(g, t)).join("")}
+      ${outcome ? outcomeHtml(i) : entryHtml(judging ? "judging" : "")}
+      ${actions}
     </div>`;
-  bindHint();
+  bindActions();
 }
 
-function renderSummit(outcome) {
+function renderSummit(outcome, judging = false) {
   const s = game.summit;
   const t = puzzle.summit;
-  const shown = Math.min(t.clues.length, s.guesses.length + 1);
+  const shown = outcome ? t.clues.length : Math.min(t.clues.length, s.guesses.length + 1);
   const clues = t.clues
-    .map((c, k) =>
-      k < shown || outcome
-        ? `<li class="def">${c}</li>`
-        : `<li class="def locked">Clearer clue after a wrong guess</li>`
-    )
+    .map((c, k) => (k < shown ? `<li class="def">${c}</li>` : `<li class="def locked">A clearer clue after each miss</li>`))
     .join("");
+  const misses = s.guesses
+    .filter((g) => !g.exact)
+    .map((g) => `<li class="${g.close >= 0.6 ? "close" : ""}">${g.word}<span>${g.close >= 0.6 ? "close" : "not it"}</span></li>`)
+    .join("");
+  const left = SUMMIT_TRIES - s.guesses.length;
 
   stage.innerHTML = `
     <div class="pitch summit">
       <div class="pitch-head">
         <h2>Summit</h2>
-        ${triesHtml(s, SUMMIT_TRIES)}
+        <span class="try-note">${outcome ? "" : `${left} ${left === 1 ? "try" : "tries"} left`}</span>
       </div>
       <p class="prompt">The rope ends here. Name the uncommon word.</p>
       <ol class="defs">${clues}</ol>
-      ${tilesHtml(normalise(t.answer), s, outcome)}
-      ${outcome ? outcomeHtml(4, outcome) : missesHtml(s) + hintHtml(s)}
+      ${misses ? `<ul class="near">${misses}</ul>` : ""}
+      ${outcome ? outcomeHtml(4) : entryHtml(judging ? "judging" : "")}
+      ${!outcome && !judging ? `<div class="actions">${hintBtnHtml(s)}</div>` : ""}
     </div>`;
-  bindHint();
+  bindActions();
 }
 
-function outcomeHtml(i, outcome) {
+function outcomeHtml(i) {
   const s = step(i);
-  const answer = normalise(target(i).answer);
+  const answer = target(i).answer;
+  const pts = `+${s.points.toLocaleString()} m`;
   if (i === 4) {
-    return outcome === "solved"
-      ? `<p class="outcome good">Summit reached. +${s.points.toLocaleString()} m</p>`
-      : `<p class="outcome bad">The summit stayed in the clouds. It was ${answer}.</p>`;
+    if (s.solved) return `<p class="outcome good">Summit reached. ${pts}</p>`;
+    return `<p class="outcome bad">The summit stayed in the clouds. It was ${answer}.${s.points ? ` Your closest guess earned ${pts}.` : ""}</p>`;
   }
-  return outcome === "solved"
-    ? `<p class="outcome good">+${s.points.toLocaleString()} m. ${answer} goes up the rope.</p>`
-    : `<p class="outcome bad">Slipped. It was ${answer}, and it still goes up the rope.</p>`;
+  const b = best(s);
+  const own = b && b.word !== answer && b.linked.length === target(i).clues.length;
+  if (own) return `<p class="outcome good">${pts}. Great find. We had ${answer}, and that goes up the rope.</p>`;
+  if (b && b.word === answer) return `<p class="outcome good">${pts}. ${answer} goes up the rope.</p>`;
+  if (s.points) return `<p class="outcome good">${pts} banked. The link was ${answer}, and it goes up the rope.</p>`;
+  return `<p class="outcome bad">No hold this time. The link was ${answer}, and it still goes up the rope.</p>`;
 }
 
-function bindHint() {
-  const btn = $("#hintBtn");
-  if (btn) btn.addEventListener("click", useHint);
+function bindActions() {
+  $("#hintBtn")?.addEventListener("click", useHint);
+  $("#keepBtn")?.addEventListener("click", () => finishStep());
 }
 
 function renderResult() {
   const tier = store.tierFor(game.metres, game.summit.solved);
   const first = puzzle.pitches[0].clues.join(" + ");
   const chain = puzzle.pitches.map((p) => p.answer);
+  const results = climbResults();
 
   const rows = [...game.pitches, game.summit]
     .map((s, i) => {
       const name = i < 4 ? `Pitch ${i + 1}` : "Summit";
-      const word = normalise(target(i).answer);
-      const how = s.solved
-        ? `guess ${s.guesses.length}${s.hint ? ", with hint" : ""}`
-        : "slipped";
-      return `<li class="${s.solved ? "ok" : "miss"}"><span class="r-name">${name}</span><span class="r-word">${word}</span><span class="r-how">${how}</span><span class="r-pts">${s.points.toLocaleString()} m</span></li>`;
+      const answer = target(i).answer;
+      let word, how;
+      if (i === 4) {
+        word = s.solved ? answer : s.guesses.at(-1)?.word || answer;
+        how = s.solved ? `on clue ${s.guesses.length}` : `the word was ${answer}`;
+      } else {
+        const b = best(s);
+        word = b?.word || "—";
+        const total = target(i).clues.length;
+        if (!b || !b.linked.length) how = `no link. The answer was ${answer}`;
+        else if (b.linked.length === total) how = b.word === answer ? "links every clue" : `your own link. We had ${answer}`;
+        else how = `links ${b.linked.join(" and ")} only`;
+      }
+      if (s.hint) how += ", with hint";
+      return `<li class="${results[i]}"><span class="r-name">${name}</span><span class="r-word">${word}</span><span class="r-how">${how}</span><span class="r-pts">${s.points.toLocaleString()} m</span></li>`;
     })
     .join("");
 
@@ -280,25 +306,25 @@ function renderResult() {
       <h2 class="result-tier">${tier}</h2>
       <p class="chain" aria-label="Today's chain">
         <span class="seed">${first}</span>
-        ${chain.map((w) => `<span class="arrow" aria-hidden="true">↑</span><span class="link">${w}</span>`).join("")}
-        <span class="arrow" aria-hidden="true">↑</span><span class="peak">${normalise(puzzle.summit.answer)}</span>
+        ${chain.map((w, i) => `<span class="arrow" aria-hidden="true">→</span><span class="link ${results[i]}">${w}</span>`).join("")}
+        <span class="arrow" aria-hidden="true">→</span><span class="peak">${puzzle.summit.answer}</span>
       </p>
-      <p class="definition"><strong>${puzzle.summit.answer.toLowerCase()}</strong>: ${puzzle.summit.clues[puzzle.summit.clues.length - 1].toLowerCase()}.</p>
+      <p class="definition"><strong>${puzzle.summit.answer.toLowerCase()}</strong>: ${puzzle.summit.clues.at(-1).toLowerCase()}.</p>
       <ul class="breakdown">${rows}</ul>
       <div class="result-actions">
         <button class="btn primary" id="shareBtn">Share result</button>
-        ${isToday ? "" : `<button class="btn ghost" id="todayBtn">Back to today</button>`}
+        ${isToday ? `<button class="btn ghost" data-open="stats" id="statsBtn">See your stats</button>` : `<button class="btn ghost" id="todayBtn">Back to today</button>`}
       </div>
       ${isToday ? `<p class="next">Next mountain in <span id="countdown"></span></p>` : ""}
     </div>`;
 
   $("#shareBtn").addEventListener("click", async () => {
-    const res = await share(shareText(n, game, tier));
+    const res = await share(shareText(n, game, tier, results));
     if (res === "copied") toast("Result copied");
     else if (res === "failed") toast("Couldn't copy. Try again from a secure page.");
   });
-  const back = $("#todayBtn");
-  if (back) back.addEventListener("click", () => go(today));
+  $("#todayBtn")?.addEventListener("click", () => go(today));
+  $("#statsBtn")?.addEventListener("click", () => openDialog("stats"));
   if (isToday) startCountdown();
 }
 
@@ -328,7 +354,7 @@ function renderKeyboard() {
   ROWS.forEach((row, r) => {
     const div = document.createElement("div");
     div.className = "krow";
-    if (r === 2) div.appendChild(keyBtn("Enter", "enter", "Submit guess"));
+    if (r === 2) div.appendChild(keyBtn("Enter", "enter", "Submit word"));
     for (const ch of row) div.appendChild(keyBtn(ch, ch));
     if (r === 2) div.appendChild(keyBtn("⌫", "back", "Delete letter"));
     keyboard.appendChild(div);
@@ -362,100 +388,106 @@ document.addEventListener("keydown", (e) => {
 
 function press(key) {
   if (game.done || locked) return;
-  const s = step();
-  const answer = normalise(target().answer);
-  const floor = s.hint ? 1 : 0;
-
+  const floor = step().hint ? 1 : 0;
   if (key === "back") {
     if (entry.length > floor) entry = entry.slice(0, -1);
   } else if (key === "enter") {
     return submit();
-  } else if (entry.length < answer.length) {
+  } else if (entry.length < MAX_LEN) {
     entry += key;
   }
-  rerenderTiles();
-}
-
-function rerenderTiles() {
-  const tiles = stage.querySelector(".tiles");
-  if (!tiles) return;
-  const s = step();
-  const answer = normalise(target().answer);
-  tiles.outerHTML = tilesHtml(answer, s);
+  const el = stage.querySelector(".entry");
+  if (el) el.outerHTML = entryHtml();
 }
 
 function shake(msg) {
-  const tiles = stage.querySelector(".tiles");
-  if (tiles) {
-    tiles.classList.remove("shake");
-    void tiles.offsetWidth;
-    tiles.classList.add("shake");
+  const el = stage.querySelector(".entry");
+  if (el) {
+    el.classList.remove("shake");
+    void el.offsetWidth;
+    el.classList.add("shake");
   }
   if (msg) toast(msg);
 }
 
-function submit() {
+async function submit() {
+  const i = game.current;
   const s = step();
   const t = target();
-  const answer = normalise(t.answer);
-  const i = game.current;
+  const word = entry;
 
-  if (entry.length < answer.length) return shake(`Fill all ${answer.length} letters`);
-  if (s.guesses.includes(entry)) return shake("Already tried that one");
+  if (word.length < 2) return shake("Type a word first");
+  if (s.guesses.some((g) => g.word === word)) return shake("Already tried that one");
+  if (i < 4 && t.clues.includes(word)) return shake("That's one of the clues");
 
-  s.guesses.push(entry);
+  locked = true;
+  i < 4 ? renderPitch(i, null, true) : renderSummit(null, true);
 
-  if (isCorrect(entry, t)) {
-    const base = (i < 4 ? PITCH_POINTS : SUMMIT_POINTS)[s.guesses.length - 1];
-    s.points = Math.max(100, base - (s.hint ? HINT_COST : 0));
-    s.solved = true;
-    finishStep("solved");
-  } else if (s.guesses.length >= triesFor(i)) {
-    s.points = 0;
-    finishStep("slipped");
-  } else {
-    entry = s.hint ? answer[0] : "";
+  if (i < 4) {
+    const { linked, checked } = await judgeLink(word, t.clues, t.answer);
+    const tryIndex = s.guesses.length;
+    const points = linkPoints(linked.length, t.clues.length, tryIndex, s.hint);
+    s.guesses.push({ word, linked, points, unchecked: !checked });
+    s.points = best(s).points;
+    locked = false;
+    entry = startingEntry();
+    if (linked.length === t.clues.length || s.guesses.length >= PITCH_TRIES) return finishStep();
     save();
-    shake();
-    // Re-render so the miss list (and the next summit clue) appear.
-    setTimeout(() => {
-      i < 4 ? renderPitch(i) : renderSummit();
-      keepTilesInView();
-    }, 380);
+    renderPitch(i);
+    keepEntryInView();
+    return;
   }
+
+  const res = await judgeSummit(word, t.answer, t.clues.at(-1));
+  s.guesses.push({ word, exact: res.exact, close: res.close });
+  locked = false;
+  entry = startingEntry();
+  if (res.exact) {
+    s.solved = true;
+    s.points = Math.max(100, SUMMIT_POINTS[s.guesses.length - 1] - (s.hint ? HINT_COST : 0));
+    return finishStep();
+  }
+  if (s.guesses.length >= SUMMIT_TRIES) {
+    const closest = Math.max(...s.guesses.map((g) => g.close || 0));
+    s.points = closest >= 0.4 ? round10(NEAR_MISS_MAX * closest) : 0;
+    return finishStep();
+  }
+  save();
+  renderSummit();
+  if (res.close >= 0.6) toast("Close. Think of a rarer word.");
+  keepEntryInView();
 }
 
-function finishStep(outcome) {
+function finishStep() {
   const i = game.current;
   const s = step(i);
   s.done = true;
+  if (i < 4) s.points = best(s)?.points || 0;
   game.metres = [...game.pitches, game.summit].reduce((sum, x) => sum + x.points, 0);
   game.current = i + 1;
   if (i === 4) game.done = true;
   save();
 
   locked = true;
-  i < 4 ? renderPitch(i, outcome) : renderSummit(outcome);
+  i < 4 ? renderPitch(i, "done") : renderSummit("done");
   updateClimb(svg, climbResults(), game.current, true, climbWords());
   setAltitude(game.metres);
 
-  if (game.done) {
+  if (game.done && n === today) {
     const tier = store.tierFor(game.metres, game.summit.solved);
-    if (n === today) {
-      store.recordResult(n, { metres: game.metres, summit: game.summit.solved, tier });
-    }
+    store.recordResult(n, { metres: game.metres, summit: game.summit.solved, tier });
   }
 
   setTimeout(() => {
     locked = false;
     entry = startingEntry();
     render();
-  }, outcome === "solved" ? 1500 : 2200);
+  }, 2200);
 }
 
 function useHint() {
   const s = step();
-  if (s.hint || game.done) return;
+  if (s.hint || game.done || locked) return;
   s.hint = true;
   entry = normalise(target().answer)[0];
   save();
@@ -556,6 +588,11 @@ function dayFromUrl() {
 }
 
 window.addEventListener("popstate", () => loadDay(dayFromUrl()));
+// Redraw the mountain when crossing the phone/laptop breakpoint.
+matchMedia("(min-width: 900px)").addEventListener("change", () => {
+  drawMountain(svg);
+  updateClimb(svg, climbResults(), game.current, false, climbWords());
+});
 
 loadDay(dayFromUrl());
 if (!store.seenHelp()) openDialog("help");

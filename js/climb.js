@@ -23,8 +23,12 @@ function el(name, attrs = {}, parent) {
   return node;
 }
 
+// On wide screens the mountain panel is tall, so zoom in on the route.
+const WIDE = matchMedia("(min-width: 900px)");
+
 export function drawMountain(svg) {
   svg.innerHTML = "";
+  svg.setAttribute("viewBox", WIDE.matches ? "6 0 296 214" : "0 0 360 210");
   const defs = el("defs", {}, svg);
   const clip = el("clipPath", { id: "mtnClip" }, defs);
   el("path", { d: RIDGE }, clip);
@@ -96,7 +100,7 @@ function placeClimber(svg, index, animate) {
 }
 
 // results: array of 5 entries, each null (not yet climbed),
-// "clean" (scored), or "slip" (missed).
+// "clean" (linked every clue), "part" (linked some) or "slip" (no hold).
 // words: the answer for each finished step, shown beside its anchor
 // on wide screens.
 export function updateClimb(svg, results, current, animate = true, words = []) {
@@ -106,7 +110,7 @@ export function updateClimb(svg, results, current, animate = true, words = []) {
     if (!r) return;
     const [x1, y1] = ANCHORS[i];
     const [x2, y2] = ANCHORS[i + 1];
-    el("line", { x1, y1, x2, y2, class: r === "slip" ? "rope slip" : "rope" }, rope);
+    el("line", { x1, y1, x2, y2, class: r === "clean" ? "rope" : `rope ${r}` }, rope);
   });
 
   svg.querySelectorAll(".anchor").forEach((a) => {

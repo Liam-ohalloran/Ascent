@@ -1,5 +1,5 @@
 // Everything is saved in this browser only (localStorage).
-const KEY = "ascent:v1";
+const KEY = "ascent:v2";
 
 function blank() {
   return { games: {}, results: {}, seenHelp: false };
