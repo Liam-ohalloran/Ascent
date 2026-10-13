@@ -27,6 +27,7 @@ import * as store from "./stats.js";
 import { shareText, share } from "./share.js";
 import * as account from "./account.js";
 import { judgeLink, judgeSummit, rarestLinks, ready as judgeReady, ERROR_TEXT } from "./judge.js";
+import * as fx from "./fx.js";
 
 const $ = (sel) => document.querySelector(sel);
 const stage = $("#stage");
@@ -271,7 +272,8 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || phase === "loading") return;
   checkDay();
   expirePitch();
-  if (phase === "feedback" && !game.done) scheduleNextPitch(TRANSITION_LEFT());
+  // Show the result they missed for a moment, then start (no clock runs meanwhile).
+  if (phase === "feedback" && !game.done) scheduleNextPitch(rules.TRANSITION_MS);
 });
 
 // Another tab saved: reload so the two tabs don't overwrite each other.
@@ -314,12 +316,8 @@ function tickTimer() {
 /* ---------- moving between pitches ---------- */
 
 let transitionTimer;
-let transitionEnds = 0;
-const TRANSITION_LEFT = () => Math.max(0, transitionEnds - performance.now());
-
 function scheduleNextPitch(delay = rules.TRANSITION_MS) {
   clearTimeout(transitionTimer);
-  transitionEnds = performance.now() + delay;
   transitionTimer = setTimeout(startPitch, delay);
 }
 
@@ -335,6 +333,11 @@ function startPitch() {
     save();
   }
   render();
+  // Skipping the result early must never leave the height behind the score.
+  if (Number($("#altNum").dataset.value || 0) !== game.metres) {
+    drawClimb(true);
+    setAltitude(game.metres);
+  }
   input.focus({ preventScroll: true });
   announce(`${rules.THEMES[i]}. ${rules.PITCH_SECONDS} seconds.`);
 }
@@ -356,27 +359,16 @@ function expirePitch({ quiet = false } = {}) {
 
 /* ---------- altitude and mountain ---------- */
 
-let altFrame;
 function setAltitude(metres, animate = true) {
   const numEl = $("#altNum");
   const from = Number(numEl.dataset.value || 0);
   numEl.dataset.value = metres;
+  fx.setMeter($("#altMeter"), metres, rules.MAX_TOTAL);
+  $(".altitude").classList.toggle("gained", animate && metres > from && !fx.reduced());
   $("#altTier").textContent = rules.tierFor(metres);
   $("#altLeft").textContent = rules.summitReached(metres) ? "Summit reached" : `${fmt(rules.SUMMIT_HEIGHT - metres)} m to the summit`;
 
-  cancelAnimationFrame(altFrame);
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (!animate || reduce || from === metres) {
-    numEl.textContent = fmt(metres);
-    return;
-  }
-  const t0 = performance.now();
-  const tick = (t) => {
-    const k = Math.min(1, (t - t0) / 700);
-    numEl.textContent = fmt(Math.round(from + (metres - from) * (1 - (1 - k) ** 3)));
-    if (k < 1) altFrame = requestAnimationFrame(tick);
-  };
-  altFrame = requestAnimationFrame(tick);
+  fx.countUp(numEl, metres, { from, ms: animate ? fx.FX.climb : 0, format: fmt });
 }
 
 function climbStops(g, p) {
@@ -398,6 +390,7 @@ function drawClimb(animate) {
 /* ---------- rendering ---------- */
 
 function renderTrack() {
+  fx.setZone(game.done ? (rules.summitReached(game.metres) ? 4 : Math.min(game.current, 4)) : game.current);
   const res = resultsFor(game, puzzle);
   $("#track").innerHTML = [0, 1, 2, 3, 4].map((i) => {
     const s = step(i);
@@ -438,6 +431,7 @@ function render() {
   setPhase("playing");
   renderKeyboard();
   game.current < 4 ? renderPitch(game.current) : renderSummit();
+  stage.firstElementChild?.classList.add("enter");
   requestAnimationFrame(() => form.scrollIntoView({ block: "nearest" }));
 }
 
@@ -475,7 +469,28 @@ function chipsHtml(t, i) {
   }).join('<li class="plus" aria-hidden="true">+</li>');
 }
 
-function linkCardHtml(g, t, tryIndex) {
+// The newest card settles into its result, then its height counts up.
+function revealCard(card) {
+  if (!card) return;
+  const pts = card.querySelector(".g-pts");
+  fx.countUp(pts, Number(pts.dataset.points), { delay: fx.FX.countDelay, format: (v) => `+${fmt(v)} m` });
+}
+
+// Shown the moment a word is sent, until the judge answers.
+function showPending(word) {
+  stage.querySelector("#pendingCard")?.remove();
+  const card = document.createElement("div");
+  card.className = "guess-card pending";
+  card.id = "pendingCard";
+  card.setAttribute("aria-hidden", "true");
+  card.innerHTML = `<div class="g-top"><span class="g-icon">…</span><span class="g-word">${esc(word)}</span><span class="g-pts">checking</span></div>`;
+  const section = stage.querySelector(".pitch");
+  (section?.querySelector(".actions") ? section.insertBefore(card, section.querySelector(".actions")) : section?.appendChild(card));
+  card.scrollIntoView?.({ block: "nearest" });
+}
+const clearPending = () => stage.querySelector("#pendingCard")?.remove();
+
+function linkCardHtml(g, t, tryIndex, reveal = false) {
   const total = t.clues.length;
   const kind = rules.holdKind(g.linked.length, total, g.near);
   const missed = t.clues.filter((c) => !g.linked.includes(c));
@@ -493,9 +508,9 @@ function linkCardHtml(g, t, tryIndex) {
   }
   if (g.linked.length) parts.push(`${rules.rarityLabel(g.zipf)} ×${rules.rarity(g.zipf).toFixed(2)}`);
   if (tryIndex > 0) parts.push("second try ×0.70");
-  return `<div class="guess-card ${kind}">
+  return `<div class="guess-card ${kind}${reveal ? " reveal" : ""}">
       <div class="g-top"><span class="g-icon" aria-hidden="true">${icon}</span><span class="g-word">${esc(g.word)}</span>
-        <span class="g-pts">+${fmt(g.points)} m</span></div>
+        <span class="g-pts" data-points="${g.points}">+${fmt(g.points)} m</span></div>
       <p class="g-why">${why}${parts.length ? ` <span class="g-rare">${parts.join(", ")}.</span>` : ""}</p>
     </div>`;
 }
@@ -507,7 +522,8 @@ function pitchHead(i, note) {
     </div>`;
 }
 
-function renderPitch(i) {
+function renderPitch(i, { reveal = false } = {}) {
+  fx.cancelAll();
   const s = game.pitches[i];
   const t = puzzle.pitches[i];
   const tryNo = s.guesses.length;
@@ -522,26 +538,30 @@ function renderPitch(i) {
       ${pitchHead(i, tryNo === 0 ? "Try 1 of 2" : "Try 2 of 2, worth 70%")}
       <p class="prompt">${prompt}</p>
       <ul class="chips" aria-label="Clues">${chipsHtml(t, i)}</ul>
-      ${s.guesses.map((g, k) => linkCardHtml(g, t, k)).join("")}
+      ${s.guesses.map((g, k) => linkCardHtml(g, t, k, reveal && k === tryNo - 1)).join("")}
       ${keep}
     </section>`;
+  if (reveal) revealCard(stage.querySelector(".guess-card.reveal"));
   $("#keepBtn")?.addEventListener("click", () => {
     if (phase === "playing") finishStep();
   });
   if (tryNo) stage.scrollTop = stage.scrollHeight;
 }
 
-function renderSummit() {
+function renderSummit({ reveal = false } = {}) {
+  fx.cancelAll();
   const s = game.summit;
   const t = puzzle.summit;
   const shown = Math.min(t.clues.length, s.guesses.length + 1);
   const left = rules.SUMMIT_TRIES - s.guesses.length;
   const clues = t.clues.map((c, k) => (k < shown
-    ? `<li class="def">${esc(c)}</li>`
+    ? `<li class="def${reveal && k === shown - 1 && k > 0 ? " reveal" : ""}">${esc(c)}</li>`
     : `<li class="def locked">A clearer clue after each miss</li>`)).join("");
-  const misses = s.guesses.filter((g) => !g.exact).map((g) => {
+  const missList = s.guesses.filter((g) => !g.exact);
+  const misses = missList.map((g, k) => {
     const close = g.near || g.close >= rules.CLOSE;
-    return `<li class="${close ? "close" : ""}">${esc(g.word)}<span>${close ? "close" : "not it"}</span></li>`;
+    const fresh = reveal && k === missList.length - 1;
+    return `<li class="${close ? "close" : ""}${fresh ? " reveal" : ""}">${esc(g.word)}<span>${close ? "close" : "not it"}</span></li>`;
   }).join("");
   stage.innerHTML = `
     <section class="pitch summit" aria-labelledby="pitchTitle">
@@ -573,18 +593,20 @@ function outcomeHtml(i) {
   return `${lead}${rope}<p class="rarest" id="rarest"></p>`;
 }
 
-function renderFeedback(i, timedOut = false) {
+function renderFeedback(i, timedOut = false, { reveal = false } = {}) {
+  fx.cancelAll();
   const last = i >= 4;
   const next = last ? "your results" : rules.THEMES[i + 1];
   stage.innerHTML = `
     <section class="pitch feedback" aria-labelledby="pitchTitle">
       ${pitchHead(i, timedOut ? "Out of time" : "Done")}
       ${i < 4 ? `<ul class="chips" aria-label="Clues">${chipsHtml(target(i), i)}</ul>` : ""}
-      ${i < 4 ? step(i).guesses.map((g, k) => linkCardHtml(g, target(i), k)).join("") : ""}
-      ${outcomeHtml(i)}
+      ${i < 4 ? step(i).guesses.map((g, k) => linkCardHtml(g, target(i), k, reveal && k === step(i).guesses.length - 1)).join("") : ""}
+      <div class="outcome-wrap${reveal ? " reveal-late" : ""}">${outcomeHtml(i)}</div>
       ${last ? "" : `<p class="next-note">${esc(next)} starts in a moment, with a fresh ${rules.PITCH_SECONDS} seconds.</p>`}
       <div class="actions"><button class="btn primary" type="button" id="nextBtn">${last ? `On to ${next}` : `Start ${esc(next)} now`}</button></div>
     </section>`;
+  if (reveal) revealCard(stage.querySelector(".guess-card.reveal"));
   const nextBtn = $("#nextBtn");
   nextBtn.addEventListener("click", continueClimb);
   nextBtn.focus({ preventScroll: true });
@@ -600,6 +622,9 @@ function renderFeedback(i, timedOut = false) {
 function continueClimb() {
   if (phase !== "feedback") return;
   if (!game.done) return startPitch();
+  fx.cancelAll();
+  drawClimb(false);
+  setAltitude(game.metres, false);
   render();
   $("#resultTitle")?.focus({ preventScroll: true });
 }
@@ -777,9 +802,11 @@ async function submit() {
   const forDay = n;
   const forStep = i;
   setPhase("judging");
+  showPending(word);
   const verdict = i < 4 ? await judgeLink(word, t.clues, t.answer) : await judgeSummit(word, t.answer, t.clues.at(-1));
   if (n !== forDay || game.current !== forStep || phase !== "judging") return;
 
+  clearPending();
   // A refused or unjudged word never stops the clock and never adds time.
   if (verdict.error || verdict.unknown) {
     if (verdict.unknown) {
@@ -808,7 +835,8 @@ async function submit() {
     save();
     setPhase("playing");
     if (expirePitch()) return;
-    renderPitch(i);
+    renderPitch(i, { reveal: true });
+    setAltitude(game.metres);
     input.focus({ preventScroll: true });
     return;
   }
@@ -823,7 +851,7 @@ async function submit() {
   setPhase("playing");
   if (expirePitch()) return;
   announce(`${word} isn't it.${verdict.near ? " Close, though." : ""} A clearer clue is showing.`);
-  renderSummit();
+  renderSummit({ reveal: true });
   input.focus({ preventScroll: true });
 }
 
@@ -861,17 +889,18 @@ function finishStep(at = nowMs()) {
 // Shows a finished step's result. The next pitch starts after the transition.
 function afterStep(i, timedOut) {
   renderTrack();
-  drawClimb(true);
-  setAltitude(game.metres);
+  const climb = () => { drawClimb(true); setAltitude(game.metres); };
   if (game.done) {
     setPhase("feedback");
     timerEl.hidden = true;
-    renderFeedback(i, timedOut);
+    renderFeedback(i, timedOut, { reveal: true });
+    fx.later(climb, fx.FX.climbDelay);
     announce(rules.summitReached(game.metres) ? "Summit reached." : `Climb over at ${game.metres} metres.`);
     return;
   }
   setPhase("feedback");
-  renderFeedback(i, timedOut);
+  renderFeedback(i, timedOut, { reveal: true });
+  fx.later(climb, fx.FX.climbDelay);
   scheduleNextPitch();
   announce(`${rules.THEMES[i]} ${timedOut ? "out of time" : "done"}. ${game.metres} metres. Next, ${rules.THEMES[i + 1]}.`);
 }

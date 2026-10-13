@@ -66,6 +66,17 @@ async def word(page, w):
     await page.fill("#guess", w)
     await page.press("#guess", "Enter")
     await page.wait_for_function("document.body.dataset.phase !== 'judging'")
+    await settle(page)
+
+async def fresh(page):
+    """True if the pitch timer shows a fresh 20 seconds. The page clock also
+    runs in real time while the test waits, so one tick may have passed."""
+    t = await page.inner_text("#timer")
+    return "0:20" in t or "0:19" in t
+
+async def settle(page):
+    """Waits for the guess animations (js/fx.js) to finish."""
+    await page.wait_for_function("document.body.dataset.fx !== 'busy'")
 
 async def save(page):
     return await page.evaluate("JSON.parse(localStorage.getItem('ascent'))")
@@ -119,7 +130,7 @@ async def main():
         check("no word field before the climb begins", await p.locator("#entryForm").is_hidden())
         await p.screenshot(path=OUT / "02-ready.png")
         await begin(p)
-        check("timer shows 20 seconds for the first pitch", "0:20" in await p.inner_text("#timer"))
+        check("timer shows 20 seconds for the first pitch", await fresh(p))
         check("first pitch is The Foothills", THEMES[0] in await p.inner_text("#stage"))
         s = await save(p)
         check("attempt recorded once", s["attempts"].get("1") and s["games"]["1"]["startedAt"])
@@ -146,7 +157,7 @@ async def main():
         check("the next pitch waits: no clock during the result", g["pitchStarts"][1] is None, g["pitchStarts"])
         await p.click("#nextBtn")
         check("second pitch is The Forest", THEMES[1] in await p.inner_text("#stage"))
-        check("unused time doesn't carry over: the Forest gets exactly 20 seconds", "0:20" in await p.inner_text("#timer"))
+        check("unused time doesn't carry over: the Forest gets exactly 20 seconds", await fresh(p))
 
         # 4. Refreshing keeps the climb and the pitch's deadline.
         await p.clock.run_for(5_000)
@@ -172,7 +183,7 @@ async def main():
         check("rapid submits don't start or extend a clock", g["pitchStarts"][0] == g["startedAt"] and g["pitchStarts"][1] is None, g["pitchStarts"])
         await p.clock.run_for(1_700)
         await p.wait_for_function("document.body.dataset.phase === 'playing'")
-        check("the next pitch starts by itself after the result", THEMES[1] in await p.inner_text("#stage") and "0:20" in await p.inner_text("#timer"))
+        check("the next pitch starts by itself after the result", THEMES[1] in await p.inner_text("#stage") and await fresh(p))
         await p.context.close()
 
         # 6. Word lists unavailable: clear error, no try used, retry works.
@@ -247,7 +258,7 @@ async def main():
         await p.screenshot(path=OUT / "08-pitch-timeout.png")
         await p.clock.run_for(1_700)
         await p.wait_for_function("document.body.dataset.phase === 'playing'")
-        check("the next pitch gets a fresh 20 seconds", THEMES[1] in await p.inner_text("#stage") and "0:20" in await p.inner_text("#timer"))
+        check("the next pitch gets a fresh 20 seconds", THEMES[1] in await p.inner_text("#stage") and await fresh(p))
         for k in range(2, 6):   # let every remaining pitch run out, one at a time
             await p.clock.run_for(22_000)
             await p.wait_for_function(f"JSON.parse(localStorage.ascent).games['1'].current >= {k}")
@@ -273,7 +284,7 @@ async def main():
         check("late return: the next pitch hasn't started (its clues were never shown)", g["current"] == 2 and g["pitchStarts"][2] is None, g["pitchStarts"])
         await p.clock.run_for(1_700)
         await p.wait_for_function("document.body.dataset.phase === 'playing'")
-        check("late return: the next pitch then gets its 20 seconds", THEMES[2] in await p.inner_text("#stage") and "0:20" in await p.inner_text("#timer"))
+        check("late return: the next pitch then gets its 20 seconds", THEMES[2] in await p.inner_text("#stage") and await fresh(p))
         await ctx.close()
 
         # 10b. Refresh in the transition, hidden tabs and a clock set backwards.
@@ -486,6 +497,87 @@ async def main():
         await p.goto(URL); await p.wait_for_selector("#stage")
         dur = await p.evaluate("getComputedStyle(document.querySelector('.climber') || document.body).transitionDuration")
         check("reduced motion shortens transitions", dur in ("1e-05s", "0.00001s", "0s"), dur)
+        await ctx.close()
+
+        # 20. Guess feedback: checking, reveal, score, climb, next pitch.
+        async def slow(route):
+            await asyncio.sleep(1.5)
+            await route.continue_()
+        for label, opts in (("desktop", {"width": 1440, "height": 900}), ("phone", {"width": 390, "height": 844})):
+            ctx = await b.new_context(viewport={"width": opts["width"], "height": opts["height"]}, timezone_id="Australia/Perth",
+                                      has_touch=label == "phone", is_mobile=label == "phone")
+            p = await ctx.new_page()
+            p.errors = []
+            p.on("pageerror", lambda e: p.errors.append(str(e)))
+            p.on("console", lambda m: p.errors.append(m.text) if m.type == "error" else None)
+            await p.clock.install(time=DAY1)
+            await p.route("**/data/freq.json?clock=*", lambda r: r.fulfill(status=204, headers={}))
+            await p.route(re.compile(r"\.supabase\.co/"), lambda r: r.abort())
+            await p.route(re.compile(r"supabase-js@"), lambda r: r.fulfill(status=200, content_type="text/javascript", body=FAKE_SUPABASE))
+            await p.route("**/data/assoc.json", slow)
+            await p.add_init_script("if (!sessionStorage.getItem('s')) { sessionStorage.setItem('s','1'); localStorage.setItem('ascent', JSON.stringify({version:3,games:{},attempts:{},results:{},seenHelp:true})); }")
+            await p.goto(URL); await p.wait_for_selector("#stage .ready")
+            await begin(p)
+            await p.fill("#guess", "LIGHT"); await p.press("#guess", "Enter")
+            check(f"fx {label}: the word shows as checking at once", await p.locator("#pendingCard").count() == 1 and await p.evaluate("document.body.dataset.phase") == "judging")
+            await p.press("#guess", "Enter"); await p.press("#guess", "Enter")
+            check(f"fx {label}: the climb button is locked while checking", await p.locator("#climbBtn").is_disabled())
+            await p.wait_for_function("document.body.dataset.phase !== 'judging'")
+            check(f"fx {label}: the checking card is replaced by the result", await p.locator("#pendingCard").count() == 0 and await p.locator(".guess-card.reveal.fit").count() == 1)
+            await settle(p)
+            g = (await save(p))["games"]["1"]
+            check(f"fx {label}: Enter pressed while checking scored nothing extra", len(g["pitches"][0]["guesses"]) == 1, g["pitches"][0])
+            mismatches = []
+            async def compare(where):
+                await settle(p)
+                g = (await save(p))["games"]["1"]
+                shown = int((await p.inner_text("#altNum")).replace(",", ""))
+                meter = int(await p.get_attribute("#altMeter", "aria-valuenow"))
+                if shown != g["metres"] or meter != g["metres"]:
+                    mismatches.append((where, shown, meter, g["metres"]))
+                cards = await p.evaluate("[...document.querySelectorAll('.guess-card .g-pts')].map(e => e.textContent)")
+                pts = [f"+{x['points']:,} m" for x in (g['pitches'][g['current'] - 1]['guesses'] if 0 < g['current'] <= 4 else [])]
+                if g["current"] <= 4 and cards and cards != pts:
+                    mismatches.append((where, cards, pts))
+            await compare("pitch 1")
+            check(f"fx {label}: the zone changes with the pitch", await p.evaluate("document.body.dataset.zone") == "forest")
+            for k, w in enumerate(("GREEN", "ROOM", "MATE"), start=2):
+                await p.wait_for_function("document.body.dataset.phase === 'playing'", timeout=10000)
+                await word(p, w)
+                await compare(f"pitch {k}")
+            await p.wait_for_function("document.body.dataset.phase === 'playing'", timeout=10000)
+            await word(p, "PETRICHOR")
+            await compare("summit")
+            await p.screenshot(path=OUT / f"fx-{label}-summit.png")
+            await p.click("#nextBtn"); await p.wait_for_selector("#stage .result")
+            g = (await save(p))["games"]["1"]
+            text = await p.inner_text("#stage")
+            check(f"fx {label}: displayed height matches the game after every pitch", not mismatches, mismatches)
+            check(f"fx {label}: results show the saved height", f"{g['metres']:,} m" in text, g["metres"])
+            check(f"fx {label}: no console errors through all five pitches", not p.errors, p.errors)
+            await ctx.close()
+
+        # 21. Refused words get quick feedback; reduced motion shows end states at once.
+        p = await open_page(b)
+        await begin(p)
+        await word(p, "qzxwv")
+        dur = await p.evaluate("getComputedStyle(document.querySelector('#guess')).animationDuration")
+        check("fx: a refused word gets a quick shake", dur == "0.18s", dur)
+        await p.context.close()
+        ctx = await b.new_context(reduced_motion="reduce", timezone_id="Australia/Perth")
+        p = await ctx.new_page()
+        await p.clock.install(time=DAY1)
+        await p.route("**/data/freq.json?clock=*", lambda r: r.fulfill(status=204, headers={}))
+        await p.route(re.compile(r"supabase"), lambda r: r.abort())
+        await p.add_init_script("localStorage.setItem('ascent', JSON.stringify({version:3,games:{},attempts:{},results:{},seenHelp:true}))")
+        await p.goto(URL); await p.wait_for_selector("#stage .ready")
+        await begin(p)
+        await p.fill("#guess", "LIGHT"); await p.press("#guess", "Enter")
+        await p.wait_for_function("document.body.dataset.phase === 'feedback'")
+        g = (await save(p))["games"]["1"]
+        check("reduced motion: no animation is pending", await p.evaluate("document.body.dataset.fx") != "busy")
+        check("reduced motion: the height shows at once", (await p.inner_text("#altNum")).replace(",", "") == str(g["metres"]))
+        check("reduced motion: the score shows at once", f"+{g['pitches'][0]['points']} m" in await p.inner_text("#stage"))
         await ctx.close()
 
         await b.close()

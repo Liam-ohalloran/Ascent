@@ -29,6 +29,10 @@ A link pitch scores three things separately: **validity** (is it a real word?), 
 
 Summit-word misses earn 100 m, or 200 m if close. The **summit is 4,500 m**: finishing all five pitches with common words lands around 3,000 to 3,800 m, so reaching it takes rare, exact play. There is no hint button, removed at the owner's request.
 
+### Guess feedback
+
+Sending a word shows it as *checking* at once (input locked), then the card settles into its result, its height counts up, and the climber, rope, altitude and summit meter move, all within about 1 to 1.5 seconds. The next pitch slides in after the 1.6-second result screen, with a fresh timer. Refused words get a 0.18-second shake. The scenery tint follows the pitch's zone. Animations (`js/fx.js`) only display state that has already been saved, so they can't double-score, start a second clock or show a wrong height. With reduced motion, every step shows its end state at once.
+
 ### Days, streaks and stats
 
 - **Reset:** midnight in Australia/Perth (UTC+8, no daylight saving), for every player. Day *n* is the *n*th Perth calendar day since 2026-10-13. A unit test walks 730 midnights to prove no day is skipped or repeated.
@@ -74,6 +78,7 @@ js/judge.js              dictionary judge, optional AI judge, error texts
 js/stats.js              versioned save, validation, migration, streaks, account merge
 js/account.js            optional sign-in (Supabase, email link) and sync
 js/climb.js              mountain, rope, route labels, climber
+js/fx.js                 guess feedback animations (visual only)
 js/share.js              spoiler-free share text, share sheet or clipboard
 api/score.js             Vercel Function: AI judge (off until AI Gateway is active)
 data/assoc.json          generated: words that link each clue, and how (link type)
@@ -119,7 +124,7 @@ Puzzles loop once the list runs out. Each day maps by number, never by load orde
 ```
 npm test            # 90 unit tests, no network
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
-npm run test:e2e    # 171 browser checks: the full daily cycle, per-pitch timers, time-outs, refresh, hidden tabs, clock changes, rollover, calendar, layouts 320–1440, light/dark
+npm run test:e2e    # 191 browser checks: the full daily cycle, per-pitch timers, time-outs, refresh, hidden tabs, clock changes, rollover, calendar, layouts 320–1440, light/dark
 ```
 
 The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`. Accounts are tested against a stand-in client (`tests/e2e/fake_supabase.js`), and the real Supabase project is blocked during runs.
