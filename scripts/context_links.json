@@ -1,0 +1,22 @@
+{
+  "_note": "Hand-checked links WordNet doesn't record: shared context (KING, CROWN), plain opposites and synonyms it misses (LIFE, DEATH), and idioms (WALK THE PLANK, EAGLE EYE). Two-way and strong. Each must be defensible to a fair-minded player; add a reason when it isn't obvious.",
+  "LIFE": ["DEATH"],
+  "TALK": ["CHAT"],
+  "BITTER": ["SOUR"],
+  "ENEMY": ["BITTER", "RIVAL", "FRIEND"],
+  "ZONE": ["FRIEND"],
+  "TRUCK": ["LOAD"],
+  "WRITE": ["PENCIL"],
+  "BLANK": ["PAPER", "PAGE"],
+  "BELL": ["RING"],
+  "QUEEN": ["MONARCH"],
+  "CROWN": ["QUEEN", "KING"],
+  "WALK": ["PLANK", "WANDER"],
+  "WANDER": ["STROLL"],
+  "PARTY": ["BALL", "HOST"],
+  "SHOW": ["HOST"],
+  "TREE": ["BLOSSOM"],
+  "EAGLE": ["FALCON", "HAWK", "EYE"],
+  "SIGHT": ["LOOK"],
+  "SENSE": ["SIGHT", "TASTE"]
+}

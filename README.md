@@ -10,15 +10,18 @@ One climb a day, the same mountain for everyone. The game never ends, only the d
 
 1. **Today's climb.** Open Ascent to see today's mountain and its five themed pitches: The Foothills, The Forest, The Frozen Ridge, The Storm Wall, The Summit.
 2. **Begin climb.** Starts a **6-minute** timer. There's one scored climb a day and no restarts.
-3. **Pitches 1 to 4.** Type any word that fits between the clues (SUN + FIRE → LIGHT, or STONE). No letter count. Two tries, the better one counts, and the second is worth 70%.
+3. **Pitches 1 to 4.** Type any word that associates with every clue. Synonyms (QUIET + CALM → STILL or TRANQUIL), opposites (BIG + LARGE → SMALL), related meanings, shared context (QUEEN + KING → CROWN), common phrases and compound words all count. No letter count. Two tries, the better one counts, and the second is worth 70%.
 4. **The summit word.** An uncommon word with three definitions, broad to clear: 1,000, 700 or 400 m.
 5. **Results.** These become the day's screen, with a countdown to the next mountain at midnight Perth time.
 
 ### Height (deterministic: same puzzle + same word = same height)
 
+A link pitch scores three things separately: **validity** (is it a real word?), **association** (how strongly it links each clue) and **rarity** (how uncommon the word is in written English, from the `wordfreq` corpus, not from player answers). Height = 1,000 m × association × rarity, never below the foothold. Strong links (synonym, opposite, phrase, compound, hand-checked context) count fully; looser ones (related meaning, a word in the clue's definition, an unverified compound) count 60%. The pitch's own answer and listed alternatives always count fully.
+
 | Your word | Height, first try |
 |---|---|
-| Fits every clue | 600 to 1,000 m (rarer words keep more) |
+| Strongly links every clue | 600 to 1,000 m (rarer words keep more) |
+| Links every clue, some loosely | 360 to 1,000 m |
 | Links some clues | that share of it, e.g. 300 to 500 m for one of two |
 | Close to the best word (compounds with it, or shares its root) | 200 m |
 | Any other real English word | 100 m |
@@ -73,18 +76,20 @@ js/account.js            optional sign-in (Supabase, email link) and sync
 js/climb.js              mountain, rope, route labels, climber
 js/share.js              spoiler-free share text, share sheet or clipboard
 api/score.js             Vercel Function: AI judge (off until AI Gateway is active)
-data/links.json          generated: words that link each clue
+data/assoc.json          generated: words that link each clue, and how (link type)
 data/freq.json           generated: how common each word is
 data/words.txt           generated: 57,000 real words (typos are refused, real words earn a foothold)
-scripts/build_links.py   builds the two data files
+scripts/build_links.py   builds the three data files
 scripts/phrase_links.json  two-word phrases and excluded name fragments
+scripts/context_links.json hand-checked context links WordNet doesn't record
+scripts/puzzle_report.mjs  per-pitch link types and alternative answers
 tests/unit/              node:test unit tests (rules, dates, storage, judge, API)
 tests/e2e/journeys.py    Playwright journeys and layout checks
 ```
 
 ## Judging
 
-1. **Dictionary.** `data/links.json` lists words that form a real compound or common phrase with each clue. It is built from English word frequencies (`wordfreq`) plus hand-written phrases. Name fragments such as BALLINA or CASTLETON are excluded. Plurals count as their singular and score with the singular's rarity, so BALLS can't beat BALL. This is deterministic, so every player gets the same verdict.
+1. **Dictionary.** `data/assoc.json` lists, for each clue, the words that associate with it and how: compound, phrase, synonym, opposite, related meaning, defined-by, or hand-checked context. It is built by `scripts/build_links.py` from WordNet, English word frequencies (`wordfreq`), `scripts/phrase_links.json` and `scripts/context_links.json`. A linking word must be a real, common-noun WordNet entry, a closed compound must itself be a dictionary word, and a word containing the clue (SUNSHINE for SUN) doesn't count, so string accidents like CAR + PET (carpet) or HOT + SNAPS (snapshot) no longer score as full links. Plurals count as their singular and score with the singular's rarity, so BALLS can't beat BALL. Words with no frequency data get no rarity bonus. This is deterministic, so every player gets the same verdict.
 2. **AI judge (optional).** `api/score.js` asks a model through Vercel AI Gateway about clues the dictionary didn't link, and rates summit near-misses. It is **switched off** (`JUDGE_ENABLED = false` in `js/judge.js`) because AI Gateway needs a credit card on the Vercel account. To turn it on, add the card in Vercel and set the flag to `true`.
    - Inputs are A–Z words only, so a guess can't carry instructions. Replies are parsed and validated field by field, and only explicit `true` counts.
    - CORS allows only the game's own sites. Each IP gets 30 calls a minute. Errors return a plain code, and details go only to the server log.
@@ -96,20 +101,23 @@ tests/e2e/journeys.py    Playwright journeys and layout checks
 
 ## Adding puzzles
 
-Append to `js/puzzles.js` (give the mountain a name that gives nothing away), then rebuild the word data:
+Append to `js/puzzles.js` (give the mountain a name that gives nothing away). Mix association types: the tests allow at most two compound or phrase-only pitches per mountain and require each two-clue pitch to have more than one fair answer. List other fair answers in `alt`. Then rebuild the word data and check:
 
 ```
-pip install wordfreq
-npm run build:words
-npm test        # checks every puzzle validates
+pip install wordfreq nltk && python3 -m nltk.downloader wordnet
+npm run build:words           # prints any intended link no rule could justify
+node scripts/puzzle_report.mjs # link types and alternatives per pitch
+npm test                       # validates, checks variety, locks published puzzles
 ```
+
+An intended link the rules can't justify needs a fair entry in `scripts/context_links.json`. Published puzzles are locked by hash in `tests/unit/puzzles.test.js`: never edit one that has been played.
 
 Puzzles loop once the list runs out. Each day maps by number, never by load order.
 
 ## Tests
 
 ```
-npm test            # 62 unit tests, no network
+npm test            # 87 unit tests, no network
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
 npm run test:e2e    # 152 browser checks: the full daily cycle, timer, refresh, rollover, calendar, layouts 320–1440, light/dark
 ```

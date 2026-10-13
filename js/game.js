@@ -403,14 +403,18 @@ function linkCardHtml(g, t, tryIndex) {
   const total = t.clues.length;
   const kind = rules.holdKind(g.linked.length, total, g.near);
   const missed = t.clues.filter((c) => !g.linked.includes(c));
+  const how = (c) => g.types?.[c] ? `${esc(c)} (${rules.linkLabel(g.types[c])})` : esc(c);
   const why = {
-    fit: total === 2 ? "Fits between both clues." : "Fits between all three clues.",
-    partial: `Holds on ${g.linked.join(" and ")}, but doesn't link ${missed.join(" or ")}.`,
+    fit: `Links ${g.linked.map(how).join(", ")}.`,
+    partial: `Holds on ${g.linked.map(how).join(" and ")}, but doesn't link ${missed.join(" or ")}.`,
     near: "Doesn't link the clues, but it's close to the best word.",
     foothold: "Doesn't link the clues. A foothold.",
   }[kind];
   const icon = { fit: "✓", partial: "½", near: "~", foothold: "•" }[kind];
   const parts = [];
+  if (g.linked.length && Number.isFinite(g.strength) && g.strength < g.linked.length / total) {
+    parts.push(`looser link ×${(g.strength * total / g.linked.length).toFixed(2)}`);
+  }
   if (g.linked.length) parts.push(`${rules.rarityLabel(g.zipf)} ×${rules.rarity(g.zipf).toFixed(2)}`);
   if (tryIndex > 0) parts.push("second try ×0.70");
   return `<div class="guess-card ${kind}">
@@ -710,8 +714,10 @@ async function submit() {
   // A guess sent before the deadline counts even if judging finished after it.
   input.value = "";
   if (i < 4) {
-    const points = rules.guessPoints({ linked: verdict.linked.length, total: t.clues.length, tryIndex: s.guesses.length, zipf: verdict.zipf, near: verdict.near });
-    s.guesses.push({ word, linked: verdict.linked, zipf: verdict.zipf, near: Boolean(verdict.near), points });
+    const points = rules.guessPoints({ linked: verdict.linked.length, total: t.clues.length, tryIndex: s.guesses.length, zipf: verdict.zipf, near: verdict.near, strength: verdict.strength });
+    const guess = { word, linked: verdict.linked, types: verdict.types, strength: verdict.strength, near: Boolean(verdict.near), points };
+    if (Number.isFinite(verdict.zipf)) guess.zipf = verdict.zipf;
+    s.guesses.push(guess);
     s.points = rules.bestGuess(s.guesses).points;
     const kind = rules.holdKind(verdict.linked.length, t.clues.length, verdict.near);
     announce(`${word}: ${{ fit: "fits", partial: `links ${verdict.linked.join(" and ")}`, near: "close to the best word", foothold: "a foothold" }[kind]}. Plus ${points} metres.`);
@@ -844,11 +850,12 @@ $("#tryForm").addEventListener("submit", async (e) => {
   const v = await judgeLink(parsed.word, clues, "LIGHT");
   if (v.error) return (out.textContent = ERROR_TEXT[v.error]);
   if (v.unknown) return (out.textContent = `${parsed.word} isn't a word we know. Check the spelling.`);
-  const pts = rules.guessPoints({ linked: v.linked.length, total: 2, zipf: v.zipf, near: v.near });
+  const pts = rules.guessPoints({ linked: v.linked.length, total: 2, zipf: v.zipf, near: v.near, strength: v.strength });
   const kind = rules.holdKind(v.linked.length, 2, v.near);
+  const how = v.linked.map((c) => `${c} (${rules.linkLabel(v.types[c])})`).join(" and ");
   out.textContent = {
-    fit: `${parsed.word} fits both. ${rules.rarityLabel(v.zipf)}, so it earns ${fmt(pts)} m.`,
-    partial: `${parsed.word} only links ${v.linked[0]}: ${fmt(pts)} m.`,
+    fit: `${parsed.word} links ${how}. ${rules.rarityLabel(v.zipf)}, so it earns ${fmt(pts)} m.`,
+    partial: `${parsed.word} only links ${how}: ${fmt(pts)} m.`,
     near: `${parsed.word} is close to the best word: ${fmt(pts)} m.`,
     foothold: `${parsed.word} doesn't link either clue, but it's a real word: ${fmt(pts)} m. Try LIGHT, or a rarer one like STONE.`,
   }[kind];

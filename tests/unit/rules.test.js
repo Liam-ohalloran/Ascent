@@ -11,7 +11,7 @@ test("rarity: common words keep 60%, rare words keep 100%, clamped both ends", (
   assert.equal(r.rarity(r.RARE_ZIPF), 1);
   assert.equal(r.rarity(1), 1);
   assert.ok(r.rarity(4.6) > 0.6 && r.rarity(4.6) < 1);
-  assert.equal(r.rarity(NaN), 1, "unknown frequency counts as rare, never NaN");
+  assert.equal(r.rarity(NaN), 0.6, "unknown frequency earns no rarity bonus, never NaN");
 });
 
 test("every judged word earns height, never zero", () => {

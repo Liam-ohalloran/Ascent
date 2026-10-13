@@ -1,10 +1,17 @@
 // Daily puzzles. Puzzle 1 is the launch day (see LAUNCH in daily.js).
 //
 // Each day has five pitches.
-// Pitches 1 to 4 are bridges: find ONE word that joins every clue
-// (as a compound word or common phrase, before or after the clue).
+// Pitches 1 to 4 are bridges: find ONE word that associates with every
+// clue. Any defensible association counts: synonym (QUIET, CALM -> STILL),
+// opposite (DAY -> NIGHT), related meaning (SKELETON -> BONE), shared
+// context (KING -> CROWN), common phrase (WAR ZONE) or compound word
+// (SNOWSTORM). Mix the types: no mountain should lean on compounds alone.
 // The answer to each pitch is carried up the rope and becomes the
-// first clue of the next pitch.
+// first clue of the next pitch. "alt" lists other answers a fair-minded
+// player would accept as fitting every clue; they score like the answer.
+//
+// Puzzles that have already been played must never change, so every player
+// on a given day sees the same mountain (tests/unit/puzzles.test.js locks them).
 // Pitch 5 is the summit: an uncommon word revealed through three
 // definition clues, broad to specific.
 //
@@ -49,10 +56,10 @@ export const PUZZLES = [
   {
     name: "Cinder Horn",
     pitches: [
-      { clues: ["TOOTH", "HAIR"], answer: "BRUSH" },
-      { clues: ["FIRE"], answer: "WOOD" },
-      { clues: ["SHORT"], answer: "CUT" },
-      { clues: ["HORSE", "PAPER"], answer: "BACK" },
+      { clues: ["QUIET", "CALM"], answer: "STILL", alt: ["TRANQUIL", "PEACEFUL"] },
+      { clues: ["DEATH"], answer: "LIFE", alt: ["BIRTH"] },
+      { clues: ["CLOCK"], answer: "TIME" },
+      { clues: ["DAY", "DARK"], answer: "NIGHT" },
     ],
     summit: {
       answer: "SONDER",
@@ -66,10 +73,10 @@ export const PUZZLES = [
   {
     name: "Wren Peak",
     pitches: [
-      { clues: ["RAIN", "WATER"], answer: "FALL" },
-      { clues: ["MARE"], answer: "NIGHT" },
-      { clues: ["WILD"], answer: "LIFE" },
-      { clues: ["COAST", "SAFE"], answer: "GUARD" },
+      { clues: ["ICE", "SNOW"], answer: "STORM" },
+      { clues: ["RAIN"], answer: "CLOUD", alt: ["WATER"] },
+      { clues: ["FOG"], answer: "MIST", alt: ["HAZE"] },
+      { clues: ["HAIR", "SEA"], answer: "SPRAY" },
     ],
     summit: {
       answer: "PALIMPSEST",
@@ -83,10 +90,10 @@ export const PUZZLES = [
   {
     name: "Mount Alder",
     pitches: [
-      { clues: ["STAR", "JELLY"], answer: "FISH" },
-      { clues: ["SUPER"], answer: "BOWL" },
-      { clues: ["LINE"], answer: "PUNCH" },
-      { clues: ["DEAD", "SIDE"], answer: "LINE" },
+      { clues: ["BIG", "LARGE"], answer: "SMALL", alt: ["LITTLE", "TINY", "HUGE", "GIANT"] },
+      { clues: ["CHAT"], answer: "TALK", alt: ["GOSSIP"] },
+      { clues: ["FRONT"], answer: "BACK", alt: ["SHOP"] },
+      { clues: ["SKELETON", "DRY"], answer: "BONE" },
     ],
     summit: {
       answer: "SOLILOQUY",
@@ -100,10 +107,10 @@ export const PUZZLES = [
   {
     name: "Saltback Ridge",
     pitches: [
-      { clues: ["BUTTER", "DRAGON"], answer: "FLY" },
-      { clues: ["NEWS"], answer: "PAPER" },
-      { clues: ["HEAVY"], answer: "WEIGHT" },
-      { clues: ["HOME", "CARE"], answer: "LESS" },
+      { clues: ["SWEET", "SOUR"], answer: "BITTER", alt: ["SALTY", "SAVOURY", "SAVORY", "TART"] },
+      { clues: ["RIVAL"], answer: "ENEMY", alt: ["FOE"] },
+      { clues: ["PAL"], answer: "FRIEND", alt: ["BUDDY", "MATE", "CHUM", "ALLY"] },
+      { clues: ["WAR", "TIME"], answer: "ZONE" },
     ],
     summit: {
       answer: "OSSIFY",
@@ -117,10 +124,10 @@ export const PUZZLES = [
   {
     name: "The Lantern",
     pitches: [
-      { clues: ["CUP", "PAN"], answer: "CAKE" },
-      { clues: ["CUT"], answer: "SHORT" },
-      { clues: ["GINGER"], answer: "BREAD" },
-      { clues: ["KEY", "SKATE"], answer: "BOARD" },
+      { clues: ["CANDLE", "LAMP"], answer: "LIGHT", alt: ["WICK", "OIL", "FLAME"] },
+      { clues: ["HEAVY"], answer: "WEIGHT", alt: ["METAL", "INDUSTRY", "RAIN", "DUTY"] },
+      { clues: ["BURDEN"], answer: "LOAD", alt: ["PRESSURE"] },
+      { clues: ["FIRE", "LORRY"], answer: "TRUCK" },
     ],
     summit: {
       answer: "MELLIFLUOUS",
@@ -134,10 +141,10 @@ export const PUZZLES = [
   {
     name: "Mount Quill",
     pitches: [
-      { clues: ["BED", "BATH"], answer: "ROOM" },
-      { clues: ["MATE"], answer: "CLASS" },
-      { clues: ["HOME"], answer: "WORK" },
-      { clues: ["BOOK", "SWEAT"], answer: "SHOP" },
+      { clues: ["PEN", "PENCIL"], answer: "WRITE", alt: ["DRAW", "SKETCH"] },
+      { clues: ["ENVELOPE"], answer: "LETTER", alt: ["ADDRESS", "CARD"] },
+      { clues: ["NEWS"], answer: "PAPER" },
+      { clues: ["SHEET", "PAGE"], answer: "BLANK", alt: ["WHITE"] },
     ],
     summit: {
       answer: "EPHEMERAL",
@@ -152,9 +159,9 @@ export const PUZZLES = [
     name: "Harrow Peak",
     pitches: [
       { clues: ["EAR", "HEAD"], answer: "PHONE" },
-      { clues: ["WATCH"], answer: "SMART" },
-      { clues: ["LIGHT"], answer: "STREET" },
-      { clues: ["RACE", "BOX"], answer: "CAR" },
+      { clues: ["CALL"], answer: "RING" },
+      { clues: ["ALARM"], answer: "BELL", alt: ["CLOCK"] },
+      { clues: ["CHURCH", "CLOCK"], answer: "TOWER" },
     ],
     summit: {
       answer: "QUIXOTIC",
@@ -168,10 +175,10 @@ export const PUZZLES = [
   {
     name: "Mount Ember",
     pitches: [
-      { clues: ["HONEY", "HIVE"], answer: "BEE" },
-      { clues: ["SIZE"], answer: "QUEEN" },
-      { clues: ["SLEEP"], answer: "BEAUTY" },
-      { clues: ["HOT", "SUN"], answer: "SPOT" },
+      { clues: ["HONEY", "HIVE"], answer: "BEE", alt: ["COMB"] },
+      { clues: ["MONARCH"], answer: "QUEEN", alt: ["BUTTERFLY"] },
+      { clues: ["KING"], answer: "CROWN", alt: ["THRONE", "PALACE", "ROYAL"] },
+      { clues: ["GEM", "TREASURE"], answer: "JEWEL" },
     ],
     summit: {
       answer: "VERISIMILITUDE",
@@ -186,9 +193,9 @@ export const PUZZLES = [
     name: "Larkspur Dome",
     pitches: [
       { clues: ["SKATE", "SURF"], answer: "BOARD" },
-      { clues: ["POST"], answer: "CARD" },
-      { clues: ["FIRE"], answer: "WILD" },
-      { clues: ["BOB", "COPY"], answer: "CAT" },
+      { clues: ["PLANK"], answer: "WALK", alt: ["WOOD", "TIMBER"] },
+      { clues: ["STROLL"], answer: "WANDER", alt: ["AMBLE", "SAUNTER", "RAMBLE"] },
+      { clues: ["ROVE", "DRIFT"], answer: "ROAM" },
     ],
     summit: {
       answer: "LACONIC",
@@ -203,9 +210,9 @@ export const PUZZLES = [
     name: "Granite Sister",
     pitches: [
       { clues: ["EYE", "FIRE"], answer: "BALL" },
-      { clues: ["NOTE"], answer: "FOOT" },
-      { clues: ["BLUE"], answer: "PRINT" },
-      { clues: ["BLACK", "TAKE"], answer: "OUT" },
+      { clues: ["DANCE"], answer: "PARTY" },
+      { clues: ["GUEST"], answer: "HOST", alt: ["LIST"] },
+      { clues: ["GAME", "TALK"], answer: "SHOW" },
     ],
     summit: {
       answer: "OBFUSCATE",
@@ -220,9 +227,9 @@ export const PUZZLES = [
     name: "Mount Corrie",
     pitches: [
       { clues: ["TEA", "COFFEE"], answer: "POT" },
-      { clues: ["DOG"], answer: "HOT" },
-      { clues: ["LINE"], answer: "HEAD" },
-      { clues: ["ARM", "WRIST"], answer: "BAND" },
+      { clues: ["PLANT"], answer: "FLOWER", alt: ["HERB"] },
+      { clues: ["BLOOM"], answer: "BLOSSOM", alt: ["FLOURISH", "BUD"] },
+      { clues: ["CHERRY", "APPLE"], answer: "TREE" },
     ],
     summit: {
       answer: "MAGNANIMOUS",
@@ -236,10 +243,10 @@ export const PUZZLES = [
   {
     name: "Falcon Tor",
     pitches: [
-      { clues: ["DOOR", "BLUE"], answer: "BELL" },
-      { clues: ["CODE"], answer: "BAR" },
-      { clues: ["CASTLE"], answer: "SAND" },
-      { clues: ["WALL", "NEWS"], answer: "PAPER" },
+      { clues: ["FALCON", "HAWK"], answer: "EAGLE", alt: ["KITE", "OSPREY", "OWL", "VULTURE", "BIRD"] },
+      { clues: ["NAKED"], answer: "EYE", alt: ["BALD"] },
+      { clues: ["LOOK"], answer: "SIGHT", alt: ["VIEW", "VISION"] },
+      { clues: ["SMELL", "TASTE"], answer: "SENSE" },
     ],
     summit: {
       answer: "PERIPATETIC",
@@ -265,6 +272,9 @@ export function validateDay(raw) {
     const want = i === 0 || i === 3 ? 2 : 1; // new clues (pitch 4 has three in total)
     if (!Array.isArray(p.clues) || p.clues.length !== want || !p.clues.every((c) => WORD.test(c))) {
       return `pitch ${i + 1} clues`;
+    }
+    if (p.alt !== undefined && (!Array.isArray(p.alt) || !p.alt.every((w) => WORD.test(w) && w !== p.answer))) {
+      return `pitch ${i + 1} alt`;
     }
   }
   const s = raw.summit;

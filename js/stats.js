@@ -67,7 +67,10 @@ function validLinkGuess(g, clueCount) {
   return isObj(g) && WORD.test(g.word) && Array.isArray(g.linked) &&
     g.linked.length <= clueCount && g.linked.every((c) => typeof c === "string") &&
     num(g.points, 0, 1000) && (g.zipf === undefined || num(g.zipf, 0, 9)) &&
-    (g.near === undefined || typeof g.near === "boolean");
+    (g.near === undefined || typeof g.near === "boolean") &&
+    (g.strength === undefined || num(g.strength, 0, 1)) &&
+    (g.types === undefined || (isObj(g.types) && Object.entries(g.types).every(([c, t]) =>
+      g.linked.includes(c) && typeof t === "string" && /^[a-z]$/.test(t))));
 }
 
 function validSummitGuess(g) {

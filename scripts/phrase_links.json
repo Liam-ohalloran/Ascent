@@ -504,5 +504,12 @@
     "WORTH",
     "IAN",
     "INE"
-  ]
+  ],
+  "SUPER": [
+    "BOWL"
+  ],
+  "CASTLE": [
+    "SAND"
+  ],
+  "_exclude_pairs": []
 }

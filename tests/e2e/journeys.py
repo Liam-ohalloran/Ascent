@@ -97,7 +97,7 @@ async def main():
         check("onboarding opens on first visit", await p.evaluate("document.querySelector('#help').open"))
         await p.fill("#tryInput", "stone"); await p.press("#tryInput", "Enter")
         await p.wait_for_function("document.querySelector('#tryResult').textContent.length > 0")
-        check("practice box scores a word", "STONE fits both" in await p.inner_text("#tryResult"))
+        check("practice box scores a word", "STONE links SUN" in await p.inner_text("#tryResult"))
         await p.screenshot(path=OUT / "01-onboarding.png")
         await p.click("#help [data-close]")
         s = await save(p)
@@ -124,19 +124,19 @@ async def main():
         await word(p, "asdfg")
         msg = await p.inner_text("#formMsg")
         check("gibberish refused without using a try", "isn't a word we know" in msg and "wasn't used" in msg, msg)
-        await word(p, "heat")
+        await word(p, "pencil")
         card = await p.locator(".guess-card").last.inner_text()
         check("unrelated real word earns a 100 m foothold", "+100 m" in card and "foothold" in card, card)
-        for text, msg in [("", "Type a word first"), ("light2", "Use letters only"), ("sun", "one of the clues"), ("heat", "already tried")]:
+        for text, msg in [("", "Type a word first"), ("light2", "Use letters only"), ("sun", "one of the clues"), ("pencil", "already tried")]:
             await p.fill("#guess", text); await p.press("#guess", "Enter")
             got = await p.inner_text("#formMsg")
             check(f"invalid input {text!r} explained", msg in got, got)
         await word(p, "stone")
-        check("second try fit, scored at 70%", "+530 m" in await p.inner_text("#stage"))
+        check("second try fit, scored at 70%", "+430 m" in await p.inner_text("#stage"))
         await p.screenshot(path=OUT / "04-pitch-done.png")
         s = await save(p)
         g = s["games"]["1"]
-        check("pitch keeps its best try", g["pitches"][0]["points"] == 530 and len(g["pitches"][0]["guesses"]) == 2, g["pitches"][0])
+        check("pitch keeps its best try", g["pitches"][0]["points"] == 430 and len(g["pitches"][0]["guesses"]) == 2, g["pitches"][0])
         check("refused word counted as rejected", g["rejected"] == 1, g["rejected"])
         await p.click("#nextBtn")
         check("second pitch is The Forest", THEMES[1] in await p.inner_text("#stage"))
@@ -147,7 +147,7 @@ async def main():
         t = await p.inner_text("#timer")
         check("refresh keeps the deadline (timer not reset)", "4:59" in t or "5:00" in t, t)
         check("refresh resumes on The Forest", THEMES[1] in await p.inner_text("#stage"))
-        check("refresh keeps the height", await p.inner_text("#altNum") == "530")
+        check("refresh keeps the height", await p.inner_text("#altNum") == "430")
         await word(p, "moon")
         card = await p.locator(".guess-card").last.inner_text()
         check("partial link earns part of the pitch", "Holds on LIGHT" in card, card)
@@ -213,9 +213,10 @@ async def main():
         # 8. Rare fits climb higher than common ones.
         p = await open_page(b)
         await begin(p)
-        await climb(p, words=("STONE", "LIME", "LIT", "MATE"))
+        await climb(p, words=("STONE", "OPERA", "PAPER", "MATE"))
         m = int((await save(p))["games"]["1"]["metres"])
-        check("rare fits climb higher", m > 3200, m)
+        # Intended words climb 3,790 m; rarer strong fits (OPERA, PAPER) go higher.
+        check("rare fits climb higher", m > 3790, m)
         await p.screenshot(path=OUT / "07-rare-climb.png")
         await p.context.close()
 
@@ -322,7 +323,7 @@ async def main():
             for scheme in ("light", "dark"):
                 p = await open_page(b, width=w, height=h, scheme=scheme)
                 await begin(p)
-                await word(p, "heat")
+                await word(p, "pencil")
                 over = await p.evaluate("document.documentElement.scrollWidth - innerWidth")
                 inp = await p.locator("#guess").bounding_box()
                 kb = await p.locator("#keyboard").bounding_box()
