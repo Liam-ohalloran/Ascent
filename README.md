@@ -2,35 +2,52 @@
 
 A daily word climb. One mountain a day, the same for everyone.
 
-**Play:** https://liam-ohalloran.github.io/Ascent/
+**Play:** https://liam-ohalloran.github.io/Ascent/ or https://ascent-ruddy-pi.vercel.app/
+
+**Design:** [Figma file](https://www.figma.com/design/tIzXwD9WkiC6m9KrQ1w3i5)
 
 ## How it works
 
-- **Pitches 1 to 4:** find one word that links the clues (SUN + FIRE → LIGHT). Three guesses each.
-- **The rope:** each answer is carried up and becomes the first clue of the next pitch, so the day is one chain.
-- **Summit:** an uncommon word. You start with a vague definition and get a clearer one after each wrong guess. Four guesses.
-- **Metres:** each pitch is worth up to 1,000 m (1,000 / 700 / 400 by guess, summit 1,000 / 750 / 500 / 250). Showing the first letter costs 200 m. A perfect day is 5,000 m.
+- **Pitches 1 to 4:** type any word that links the clues (SUN + FIRE → LIGHT). No letter count is shown.
+- **Every real link earns height.** A pitch is worth up to 1,000 m, split across its clues. TORCH for SUN + FIRE links FIRE only, so it earns 500 m. Your own word that links every clue earns the full 1,000 m.
+- **Two tries.** You keep the better one, and the second is worth 70%. After a partial hold you can bank it and climb on.
+- **The rope:** the intended link word is carried up and becomes the first clue of the next pitch, so the day is one chain.
+- **Summit:** an uncommon word. A vague definition gets clearer after each miss, three tries. Exact word: 1,000 / 700 / 400 m. Close guesses are flagged, and if you never get it the closest one earns up to 300 m.
+- **First letter hint:** −200 m.
 - **Tiers:** Base camp, Treeline, Snowline, Ridge, High camp, Summit.
 
-Also: emoji share card, streaks and stats, archive of past days, a how-to-play sheet on first visit, light and dark mode. No accounts, everything is saved in the browser.
+Also: emoji share card, streaks and stats, archive of past days, light and dark mode, a two-column layout on laptops. No accounts, everything is saved in the browser.
+
+## How guesses are judged
+
+1. **Dictionary first.** `data/links.json` lists, for every clue, the words that form a real compound with it (SUN → LIGHT, SET, FLOWER, BURN…). It's built from English word frequencies by `scripts/build_links.py`, plus hand-written two-word phrases in `scripts/phrase_links.json` (QUEEN SIZE, BEAUTY SLEEP). This settles most guesses instantly.
+2. **Then the judge.** Clues the dictionary didn't link are sent to `api/score.js`, a Vercel Function that asks an AI model through Vercel AI Gateway whether the pair is a real compound or common phrase. It also rates summit near-misses. It signs in with the deployment's OIDC token, so no API key is stored.
+3. **Fallback.** If the judge can't be reached, the dictionary result stands and the game says so.
+
+The GitHub Pages site calls the function on the Vercel production URL. Vercel deploys use their own `/api/score`.
 
 ## Files
 
 ```
-index.html        page shell and dialogs
-css/style.css     all styling
-js/puzzles.js     the daily puzzles (edit this to add days)
-js/daily.js       picks today's puzzle from the date
-js/game.js        game loop, input, rendering
-js/climb.js       mountain, rope and climber drawing
-js/stats.js       localStorage, streaks, tiers
-js/share.js       share text
-assets/           favicon and social image
+index.html               page shell and dialogs
+css/style.css            all styling (phone layout, plus two columns from 900px)
+js/puzzles.js            the daily puzzles (edit this to add days)
+js/daily.js              picks today's puzzle from the date
+js/game.js               game loop, input, scoring, rendering
+js/judge.js              dictionary check, then calls the judge
+js/climb.js              mountain, rope, route labels and climber
+js/stats.js              localStorage, streaks, tiers
+js/share.js              share text
+api/score.js             Vercel Function: AI judge for links and near-misses
+data/links.json          generated link dictionary
+scripts/build_links.py   builds data/links.json
+scripts/phrase_links.json  two-word phrases the dictionary can't see
+assets/                  favicon and social image
 ```
 
 ## Adding puzzles
 
-Open `js/puzzles.js` and append a block:
+1. Append a day to `js/puzzles.js`:
 
 ```js
 {
@@ -47,14 +64,19 @@ Open `js/puzzles.js` and append a block:
 },
 ```
 
-Rules for a good chain: the answer must pair with **every** clue as a real compound or common phrase, and only one word of that length should fit. Add `alt: ["OTHER"]` if a second answer is fair.
+2. Rebuild the dictionary so the new clues can be scored:
 
-Puzzle No. 1 is 13 October 2026. When the list runs out it loops back to the start, so keep adding days. You can edit the file straight on github.com and Pages redeploys in about a minute.
+```
+pip install wordfreq
+python3 scripts/build_links.py
+```
+
+Puzzle No. 1 is 13 October 2026. When the list runs out it loops back to the start, so keep adding days.
 
 ## Run locally
-
-It uses ES modules, so open it through a server rather than double-clicking:
 
 ```
 npx serve .
 ```
+
+The judge only runs on Vercel. Locally the game uses the dictionary alone.
