@@ -13,7 +13,7 @@
 // The climb's deadline is saved when it begins, so refreshing never resets
 // the timer, and there is no way to start the day's climb again.
 import * as rules from "./rules.js";
-import { syncClock, now, todayNumber, puzzleFor, msUntilTomorrow, keyForNumber, formatKey } from "./daily.js";
+import { syncClock, travelTo, now, todayNumber, puzzleFor, msUntilTomorrow, keyForNumber, formatKey } from "./daily.js";
 import { drawMountain, updateClimb } from "./climb.js";
 import * as store from "./stats.js";
 import { shareText, share } from "./share.js";
@@ -78,19 +78,43 @@ function setPhase(next) {
 
 /* ---------- loading ---------- */
 
+// Test mode, from a link: ?test plays tomorrow's mountain, ?test=5 plays
+// No. 5, and &at=23:58 starts at that Perth time (to watch midnight pass).
+// It has its own throwaway save in this tab, so real stats are never touched.
+const TEST = (() => {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("test")) return null;
+  const n = Number(q.get("test"));
+  const at = /^([01]\d|2[0-3]):[0-5]\d$/.test(q.get("at") || "") ? q.get("at") : null;
+  return { day: Number.isInteger(n) && n > 0 ? n : null, at };
+})();
+
 async function start() {
   setPhase("loading");
   stage.innerHTML = `<p class="loading">Finding today's mountain…</p>`;
   await syncClock();
+  if (TEST) {
+    store.useTestSave();
+    travelTo(TEST.day || todayNumber() + 1, TEST.at);
+    document.body.classList.add("test-mode");
+  }
   today = todayNumber();
   store.load();
   const notice = store.takeNotice();
   if (notice) showBanner(esc(notice));
   loadToday();
-  if (!store.seenHelp()) openDialog("help");
+  if (!TEST && !store.seenHelp()) openDialog("help");
   scheduleRollover();
+  if (TEST) return showTestBanner();
   account.subscribe(accountChanged);
   account.initAccount({ onSync: synced });
+}
+
+function showTestBanner() {
+  const exit = location.pathname;
+  showBanner(`<strong>Test mode.</strong> It's ${esc(formatKey(keyForNumber(today)))} here, Perth time. Nothing counts toward your real streak or stats.
+    <span class="test-actions"><button class="link-btn" type="button" id="testReset">Start the test again</button> · <a class="link-btn" href="${exit}">Back to today</a></span>`);
+  $("#testReset").addEventListener("click", () => { store.resetTestSave(); location.reload(); });
 }
 
 /* ---------- account ---------- */
@@ -116,7 +140,9 @@ function renderAccount() {
   const s = account.state;
   const body = $("#accountBody");
   const msg = s.message ? `<p class="account-msg" role="status">${esc(s.message)}</p>` : "";
-  if (s.status === "loading") {
+  if (TEST) {
+    body.innerHTML = `<p>Accounts are off in test mode, so nothing here is saved to your account.</p>`;
+  } else if (s.status === "loading") {
     body.innerHTML = `<p class="loading">Checking your account…</p>`;
   } else if (s.status === "unavailable") {
     body.innerHTML = `${msg}<p class="fine">You can keep playing. Nothing is lost.</p>`;
@@ -175,7 +201,7 @@ function renderAccount() {
 
 function loadToday() {
   n = today;
-  if (new URLSearchParams(location.search).has("day")) history.replaceState({}, "", location.pathname);
+  if (!TEST && new URLSearchParams(location.search).has("day")) history.replaceState({}, "", location.pathname);
   try {
     puzzle = puzzleFor(n);
   } catch (err) {

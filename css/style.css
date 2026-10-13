@@ -695,3 +695,11 @@ button:disabled { cursor: not-allowed; }
   background: none; border: 0; padding: 0; font: inherit; color: var(--rope-ink);
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
+
+/* ---------- test mode ---------- */
+.test-mode .logo::after {
+  content: "Test"; margin-left: 0.4rem; padding: 0.1rem 0.45rem; border-radius: 999px;
+  background: var(--rope); color: #fff; font-family: var(--body); font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; vertical-align: middle;
+}
+.test-actions { display: block; margin-top: 0.25rem; }

@@ -386,7 +386,28 @@ async def main():
         check("account: if accounts are down the game still plays", await p.locator("#beginBtn").count() == 1)
         await p.context.close()
 
-        # 18. Reduced motion.
+        # 18. Test mode: tomorrow's mountain now, on a throwaway save.
+        ctx = await b.new_context(viewport={"width": 390, "height": 844}, timezone_id="Australia/Perth")
+        p = await ctx.new_page()
+        await p.clock.install(time=DAY1)
+        await p.route("**/data/freq.json?clock=*", lambda r: r.fulfill(status=204, headers={}))
+        await p.route(re.compile(r"supabase"), lambda r: r.abort())
+        await p.add_init_script("localStorage.setItem('ascent', JSON.stringify({version:3,games:{},attempts:{},results:{},seenHelp:true}))")
+        await p.goto(URL + "?test"); await p.wait_for_selector("#stage .ready")
+        check("test mode: plain ?test opens tomorrow's mountain", "No. 2" in await p.inner_text("#dayLine"))
+        check("test mode: says so", "Test mode" in await p.inner_text("#banner"))
+        await begin(p); await word(p, "BALL")
+        real = await save(p)
+        check("test mode: real save untouched", not real["games"] and not real["attempts"])
+        await p.click("#testReset"); await p.wait_for_selector("#stage .ready")
+        check("test mode: can start again", await p.locator("#beginBtn").count() == 1)
+        await p.goto(URL + "?test=1&at=23:59"); await p.wait_for_selector("#stage .ready")
+        await p.clock.run_for(90_000)
+        await p.wait_for_function("document.querySelector('#dayLine').textContent.includes('No. 2')", timeout=15000)
+        check("test mode: midnight rollover can be watched", True)
+        await ctx.close()
+
+        # 19. Reduced motion.
         ctx = await b.new_context(reduced_motion="reduce")
         p = await ctx.new_page()
         await p.route(re.compile(r"supabase-js@|\.supabase\.co/"), lambda r: r.abort())

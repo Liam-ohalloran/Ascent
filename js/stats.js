@@ -13,7 +13,23 @@
 // so none of this is treated as trustworthy for a leaderboard.
 import { tierFor, totalMetres, summitReached, PITCHES, PITCH_TRIES, SUMMIT_TRIES, MAX_TOTAL, CLIMB_SECONDS } from "./rules.js";
 
-const KEY = "ascent";
+let KEY = "ascent";
+let backing = () => localStorage;
+let testing = false;
+
+// Test mode keeps its own save in this tab only (sessionStorage), never
+// touches the real one, and never tells the account sync about changes.
+export function useTestSave() {
+  KEY = "ascent:test";
+  backing = () => sessionStorage;
+  testing = true;
+  cache = null;
+}
+export function resetTestSave() {
+  if (!testing) return;
+  try { sessionStorage.removeItem(KEY); } catch {}
+  cache = null;
+}
 const VERSION = 3;
 const OLD_KEYS = ["ascent:v2", "ascent:v1"];
 
@@ -28,10 +44,11 @@ const WORD = /^[A-Z]{2,20}$/;
 
 function storage() {
   try {
+    const store = backing();
     const t = "__ascent_test__";
-    localStorage.setItem(t, t);
-    localStorage.removeItem(t);
-    return localStorage;
+    store.setItem(t, t);
+    store.removeItem(t);
+    return store;
   } catch {
     return null;
   }
@@ -157,7 +174,7 @@ export function load() {
     notice = "Your saved progress couldn't be read, so a fresh save was started.";
     data = null;
   }
-  if (!data) {
+  if (!data && !testing) {
     // Migrate from an older save. v1 games used a different shape and are
     // dropped by validation, but their results and streaks carry over.
     for (const old of OLD_KEYS) {
@@ -190,12 +207,12 @@ export function reload() {
 // Lets the account sync know a day changed, so it can be saved to the account too.
 const listeners = new Set();
 export function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
-const changed = (n) => listeners.forEach((fn) => { try { fn(n); } catch (err) { console.error(err); } });
+const changed = (n) => !testing && listeners.forEach((fn) => { try { fn(n); } catch (err) { console.error(err); } });
 
 function write() {
   if (!persistent) return;
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache));
+    backing().setItem(KEY, JSON.stringify(cache));
   } catch {
     persistent = false;
     notice = "Storage is full, so new progress can't be saved.";

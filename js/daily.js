@@ -14,9 +14,22 @@ export const LAUNCH_KEY = "2026-10-13"; // puzzle No. 1
 const DAY_MS = 86400000;
 
 let clockOffset = 0; // server time minus device time, in ms
+let testShift = 0;   // test mode only: moves the game to another day
 
 export function now() {
-  return new Date(Date.now() + clockOffset);
+  return new Date(Date.now() + clockOffset + testShift);
+}
+
+// Test mode: pretend it's day n, at hh:mm Perth time (or the current Perth
+// time of day if none is given). Only ever set from a ?test link.
+export function travelTo(n, hhmm = null) {
+  testShift = 0;
+  const real = now();
+  const perthMs = (real.getTime() + 8 * 3600000) % DAY_MS; // time since Perth midnight
+  const [h, m] = hhmm ? hhmm.split(":").map(Number) : [];
+  const timeOfDay = hhmm ? (h * 60 + m) * 60000 : perthMs;
+  const midnight = Date.parse(`${keyForNumber(n)}T00:00:00${PERTH_OFFSET}`);
+  testShift = midnight + timeOfDay - real.getTime();
 }
 
 export async function syncClock() {

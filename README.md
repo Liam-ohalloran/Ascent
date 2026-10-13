@@ -36,6 +36,10 @@ Summit-word misses earn 100 m, or 200 m if close. The **summit is 4,500 m**: fin
 - **Stats:** current and longest streak, climbs begun and finished, summits, best and average height, average pitches, recent climbs, and a calendar of finished, summit, missed and unfinished days. Past days can be viewed, not replayed. Missed days can reveal their answers on request.
 - **Share:** `Ascent #n, name / Height / Pitches + colour row / Time / Summit / Streak / link`. No words or answers.
 
+### Test mode
+
+Add `?test` to the link to play tomorrow's mountain now. `?test=5` plays No. 5, and `&at=23:58` starts at that Perth time so you can watch midnight pass. Test mode uses a throwaway save in that tab only, turns accounts off, and never touches real streaks or stats. Use the banner to start again or go back to today.
+
 ### Accounts (optional)
 
 The person icon opens sign-in. It's an emailed link (Supabase Auth), so there's no password. Signing in saves each day's climb to your account, so your streak, stats and calendar follow you to other devices. A climb begun on one device carries on, with the same timer, on another. Climbs already finished in the browser are added on first sign-in. Signing out keeps the browser's copy. If accounts can't be reached, the game plays exactly as before and syncs next time.
@@ -107,7 +111,7 @@ Puzzles loop once the list runs out. Each day maps by number, never by load orde
 ```
 npm test            # 62 unit tests, no network
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
-npm run test:e2e    # 147 browser checks: the full daily cycle, timer, refresh, rollover, calendar, layouts 320–1440, light/dark
+npm run test:e2e    # 152 browser checks: the full daily cycle, timer, refresh, rollover, calendar, layouts 320–1440, light/dark
 ```
 
 The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`. Accounts are tested against a stand-in client (`tests/e2e/fake_supabase.js`), and the real Supabase project is blocked during runs.
