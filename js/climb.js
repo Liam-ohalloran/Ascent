@@ -70,6 +70,7 @@ export function drawMountain(svg) {
   );
 
   el("g", { id: "ropeLayer" }, svg);
+  el("g", { id: "labelLayer" }, svg);
 
   const anchors = el("g", { id: "anchorLayer" }, svg);
   ANCHORS.slice(1).forEach(([x, y], i) => {
@@ -96,7 +97,9 @@ function placeClimber(svg, index, animate) {
 
 // results: array of 5 entries, each null (not yet climbed),
 // "clean" (scored), or "slip" (missed).
-export function updateClimb(svg, results, current, animate = true) {
+// words: the answer for each finished step, shown beside its anchor
+// on wide screens.
+export function updateClimb(svg, results, current, animate = true, words = []) {
   const rope = svg.querySelector("#ropeLayer");
   rope.innerHTML = "";
   results.forEach((r, i) => {
@@ -111,6 +114,19 @@ export function updateClimb(svg, results, current, animate = true) {
     a.classList.toggle("done", Boolean(results[i]));
     a.classList.toggle("slip", results[i] === "slip");
     a.classList.toggle("next", i === current);
+  });
+
+  const labels = svg.querySelector("#labelLayer");
+  labels.innerHTML = "";
+  results.forEach((r, i) => {
+    if (!r || !words[i]) return;
+    const [x, y] = ANCHORS[i + 1];
+    const t = el(
+      "text",
+      { x: x - 9, y: y + 3, class: r === "slip" ? "anchor-label slip" : "anchor-label" },
+      labels
+    );
+    t.textContent = words[i];
   });
 
   svg.querySelector("#summitFlag").classList.toggle("up", results[4] === "clean");

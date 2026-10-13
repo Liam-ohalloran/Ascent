@@ -589,6 +589,80 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* Route labels only show on the wide layout. */
+.anchor-label {
+  display: none;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-anchor: end;
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--mtn);
+  stroke-width: 3px;
+}
+.anchor-label.slip { fill: var(--slip); }
+
+/* ---------- laptop and desktop ---------- */
+
+@media (min-width: 900px) {
+  :root { --sky-top: #c9d9e1; }
+
+  .app {
+    max-width: 78rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(22rem, 27rem);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    column-gap: clamp(2rem, 4vw, 4rem);
+    padding: 0 clamp(1.5rem, 3vw, 3rem) 1.25rem;
+  }
+
+  .bar { grid-column: 1 / -1; padding: 1rem 0 0.75rem; }
+  .logo { font-size: 2.6rem; }
+
+  .mountain {
+    grid-column: 1;
+    grid-row: 2 / 5;
+    margin: 0;
+    border-radius: 20px;
+    background: linear-gradient(to bottom, var(--sky-top), var(--far) 85%);
+    display: flex;
+    align-items: flex-end;
+    min-height: 0;
+  }
+  .mountain svg,
+  .at-summit .mountain svg {
+    height: auto;
+    max-height: 100%;
+    width: 100%;
+  }
+
+  .altitude { left: clamp(1.5rem, 3vw, 2.5rem); top: clamp(1.25rem, 3vh, 2.25rem); }
+  .alt-num,
+  .at-summit .alt-num { font-size: clamp(4.5rem, 8.5vw, 8rem); }
+  .alt-unit,
+  .at-summit .alt-unit { font-size: clamp(1.6rem, 2.6vw, 2.6rem); }
+  .alt-tier { font-size: 1.25rem; margin-top: 0.35rem; }
+
+  .anchor-label { display: block; }
+
+  .day-line { grid-column: 2; grid-row: 2; padding-bottom: 0.25rem; }
+  .stage { grid-column: 2; grid-row: 3; padding-top: 1rem; }
+  .keyboard { grid-column: 2; grid-row: 4; }
+  .keyboard[hidden] { display: none; }
+
+  .key { height: 3.1rem; max-width: 2.5rem; }
+  .key.wide { max-width: 4rem; }
+  .chip { font-size: 1.6rem; }
+  .toast { top: 5.5rem; left: auto; right: 2rem; transform: translateY(-8px); }
+  .toast.show { transform: none; }
+}
+
+@media (min-width: 900px) and (prefers-color-scheme: dark) {
+  :root { --sky-top: #0b141c; }
+}
+
 /* ---------- small screens / motion ---------- */
 
 @media (max-height: 700px) {

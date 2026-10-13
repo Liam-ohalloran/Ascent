@@ -63,6 +63,10 @@ function climbResults() {
   );
 }
 
+function climbWords() {
+  return [...puzzle.pitches.map((p) => p.answer), puzzle.summit.answer];
+}
+
 function save() {
   store.putGame(n, game);
 }
@@ -80,7 +84,7 @@ function loadDay(num) {
   $("#dayLine").textContent = `No. ${n}, ${formatDate(dateForNumber(n))}. ${label}.`;
 
   drawMountain(svg);
-  updateClimb(svg, climbResults(), game.current, false);
+  updateClimb(svg, climbResults(), game.current, false, climbWords());
   setAltitude(game.metres, false);
   render();
 }
@@ -432,7 +436,7 @@ function finishStep(outcome) {
 
   locked = true;
   i < 4 ? renderPitch(i, outcome) : renderSummit(outcome);
-  updateClimb(svg, climbResults(), game.current, true);
+  updateClimb(svg, climbResults(), game.current, true, climbWords());
   setAltitude(game.metres);
 
   if (game.done) {
