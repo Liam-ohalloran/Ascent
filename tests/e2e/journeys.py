@@ -25,10 +25,27 @@ def check(name, ok, detail=""):
     results.append((name, bool(ok), detail))
     print(("PASS " if ok else "FAIL ") + name + (f"  [{detail}]" if detail and not ok else ""))
 
+FAKE_STATE = {"users": {}, "rows": [], "otp": [], "down": False}
+
 def serve():
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass
+        # Shared account state for tests/e2e/fake_supabase.js in shared mode.
+        def do_GET(self):
+            if self.path.startswith("/__fake/state"):
+                body = json.dumps(FAKE_STATE).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+                return
+            super().do_GET()
+        def do_PUT(self):
+            if self.path.startswith("/__fake/state"):
+                data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                FAKE_STATE.clear(); FAKE_STATE.update(data)
+                self.send_response(204); self.end_headers()
+                return
+            self.send_response(405); self.end_headers()
     srv = http.server.ThreadingHTTPServer(("localhost", PORT), functools.partial(Quiet, directory=str(ROOT)))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
@@ -427,7 +444,7 @@ async def main():
         await p.click("#accountBtn")
         await p.wait_for_selector("#emailInput")
         body = await p.inner_text("#accountBody")
-        check("account: signed-out dialog offers an email link", "Email me a link" in body and "optional" in body)
+        check("account: signed-out dialog offers password and email link", "Email me a sign-in link" in body and "Create account" in body and "optional" in body, body)
         await p.fill("#emailInput", "not-an-email"); await p.click("#sendLinkBtn")
         check("account: a bad email is caught", "Enter your email" in await p.inner_text("#signInMsg"))
         await p.fill("#emailInput", "climber@example.com"); await p.click("#sendLinkBtn")
@@ -451,7 +468,8 @@ async def main():
         check("account: its timer keeps running from the other device's start", "0:15" in await p.inner_text("#timer"), await p.inner_text("#timer"))
         await p.wait_for_function("window.__fakeAccount.upserts.length > 0")
         ups = await p.evaluate("window.__fakeAccount.upserts")
-        check("account: this browser's earlier climbs are added to the account", any(u["day"] == 1 and u["result"]["metres"] == 2100 for u in ups), ups)
+        check("account: yesterday's climb from this browser is added to the account", any(u["day"] == 1 for u in ups), ups)
+        check("account: the browser never sends a result itself", all("result" not in u for u in ups), ups)
         check("account: signed-in dot shows", await p.evaluate("document.querySelector('#accountBtn').classList.contains('signed-in')"))
         await climb(p, words=("PARK", "SIDE", "SHOW"), summit=("DEFENESTRATION",))
         await p.wait_for_function("window.__fakeAccount.rows.some(r => r.day === 2 && r.result)")
@@ -501,6 +519,100 @@ async def main():
         dur = await p.evaluate("getComputedStyle(document.querySelector('.climber') || document.body).transitionDuration")
         check("reduced motion shortens transitions", dur in ("1e-05s", "0.00001s", "0s"), dur)
         await ctx.close()
+
+        # 22. Accounts across two separate browser sessions (shared fake service).
+        async def device(storage=None):
+            ctx = await b.new_context(viewport={"width": 390, "height": 844}, timezone_id="Australia/Perth")
+            p = await ctx.new_page()
+            p.errors = []
+            p.on("pageerror", lambda e: p.errors.append(str(e)))
+            p.on("console", lambda m: p.errors.append(m.text) if m.type == "error" and "Ascent finish-climb" not in m.text else None)
+            await p.clock.install(time=DAY1)
+            await p.route("**/data/freq.json?clock=*", lambda r: r.fulfill(status=204, headers={}))
+            await p.route(re.compile(r"\.supabase\.co/"), lambda r: r.abort())
+            await p.route(re.compile(r"supabase-js@"), lambda r: r.fulfill(status=200, content_type="text/javascript", body=FAKE_SUPABASE))
+            await p.add_init_script("window.__fakeShared = true;")
+            seed = storage if storage is not None else seed_state()
+            await p.add_init_script("if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1');"
+                + "".join(f"localStorage.setItem({json.dumps(k)}, {json.dumps(v)});" for k, v in seed.items()) + "}")
+            await p.goto(URL); await p.wait_for_selector("#stage .ready, #stage .result")
+            return p
+        async def account_form(p):
+            await p.click("#accountBtn")
+            await p.wait_for_selector("#passwordInput")
+        async def submit_account(p, email, password, which):
+            await p.fill("#emailInput", email); await p.fill("#passwordInput", password)
+            await p.click(which)
+            await p.wait_for_function("!document.querySelector('#signInForm') || document.querySelector('#signInMsg').textContent.length > 0 || !document.querySelector('#signInForm button:disabled')")
+            await p.wait_for_timeout(100)
+        FAKE_STATE.clear(); FAKE_STATE.update({"users": {}, "rows": [], "otp": [], "down": False})
+        EMAIL, PW = "climber@example.com", "rope-and-carabiner"
+
+        # A guest plays today's climb, and edits their save to claim a huge score.
+        p1 = await device()
+        await begin(p1)
+        await climb(p1, words=("PENCIL", "PENCIL", "PENCIL", "PENCIL"), summit=("RAIN", "MUD", "SOIL"))
+        honest = (await save(p1))["results"]["1"]["metres"]
+        await p1.evaluate("""() => { const s = JSON.parse(localStorage.ascent);
+            const g = s.games['1']; g.pitches.forEach(p => { p.points = 1000; p.guesses.forEach(x => x.points = 1000); });
+            g.metres = 5000; s.results['1'].metres = 5000; s.results['1'].summit = true; localStorage.ascent = JSON.stringify(s); }""")
+        await p1.reload(); await p1.wait_for_selector("#stage .result")
+        check("guest: plays without an account", (await save(p1))["results"]["1"]["metres"] == 5000)
+
+        await account_form(p1)
+        await submit_account(p1, EMAIL, "short", "#registerBtn")
+        check("register: a short password is explained", "at least 8 characters" in await p1.inner_text("#signInMsg"))
+        await submit_account(p1, EMAIL, PW, "#registerBtn")
+        await p1.wait_for_selector("text=confirm your account")
+        check("register: asks to confirm the email", EMAIL in await p1.inner_text("#accountBody"))
+        await p1.click("#otherEmailBtn"); await p1.wait_for_selector("#passwordInput")
+        await submit_account(p1, EMAIL, PW, "#signInBtn")
+        check("sign in: unconfirmed email is explained", "Confirm your email first" in await p1.inner_text("#signInMsg"))
+        st = await p1.evaluate("fetch('/__fake/state').then(r => r.json())")
+        st["users"][EMAIL]["confirmed"] = True
+        await p1.evaluate("(st) => fetch('/__fake/state', { method: 'PUT', body: JSON.stringify(st) })", st)
+        await submit_account(p1, EMAIL, PW, "#registerBtn")
+        check("register: an existing account says to sign in", "already an account" in await p1.inner_text("#signInMsg"))
+        await submit_account(p1, EMAIL, "wrong-password", "#signInBtn")
+        check("sign in: a wrong password is explained", "don't match" in await p1.inner_text("#signInMsg"))
+        await submit_account(p1, EMAIL, PW, "#signInBtn")
+        await p1.wait_for_selector("#signOutBtn")
+        check("sign in: signed in with email and password", EMAIL in await p1.inner_text("#accountBody"))
+        await p1.wait_for_function("fetch('/__fake/state').then(r => r.json()).then(s => s.rows.some(r => r.day === 1 && r.result))")
+        await p1.wait_for_function(f"JSON.parse(localStorage.ascent).results['1'].metres === {honest}")
+        st = await p1.evaluate("fetch('/__fake/state').then(r => r.json())")
+        row = next(r for r in st["rows"] if r["day"] == 1)
+        check("migration: the guest climb was added to the account", row["game"] and row["result"])
+        check("server scoring: the edited 5,000 m became the honest score", row["result"]["metres"] == honest and row["result"]["verified"], (row["result"]["metres"], honest))
+        await p1.keyboard.press("Escape")
+        await p1.reload(); await p1.wait_for_selector("#stage .result")
+        await p1.wait_for_function("document.querySelector('#accountBtn').classList.contains('signed-in')")
+        check("refresh: still signed in", True)
+        check("refresh: this browser shows the server's score", f"{honest:,} m" in await p1.inner_text("#stage"))
+
+        # A second device signs in and gets the same record.
+        p2 = await device(storage=seed_state())
+        check("second device: today's climb is open as a guest", await p2.locator("#beginBtn").count() == 1)
+        await account_form(p2)
+        await submit_account(p2, EMAIL, PW, "#signInBtn")
+        await p2.wait_for_selector("#signOutBtn")
+        await p2.keyboard.press("Escape")
+        await p2.wait_for_selector("#stage .result", timeout=10000)
+        check("sync: the second device shows the finished climb, no replay", await p2.locator("#beginBtn").count() == 0)
+        await p2.click("[data-open=stats]")
+        st2 = await p2.inner_text("#statsBody")
+        check("sync: streak and personal best arrive on the second device", re.search(r"Streak\s*1\b", st2) and f"{honest:,}" in st2, st2[:200])
+        await p2.keyboard.press("Escape")
+        await p2.click("#accountBtn"); await p2.click("#signOutBtn")
+        await p2.wait_for_selector("#passwordInput")
+        check("sign out: back to guest, this browser keeps its copy", (await save(p2))["results"].get("1"))
+        st = await p2.evaluate("fetch('/__fake/state').then(r => r.json())")
+        st["down"] = True
+        await p2.evaluate("(st) => fetch('/__fake/state', { method: 'PUT', body: JSON.stringify(st) })", st)
+        await submit_account(p2, EMAIL, PW, "#signInBtn")
+        check("network failure: explained, nothing breaks", "Couldn't reach the account service" in await p2.inner_text("#signInMsg"))
+        check("no console errors on either device", not p1.errors and not p2.errors, p1.errors + p2.errors)
+        await p1.context.close(); await p2.context.close()
 
         # 20. Guess feedback: checking, reveal, score, climb, next pitch.
         async def slow(route):

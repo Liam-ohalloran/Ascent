@@ -735,7 +735,10 @@ body[data-zone="summit"] .mountain::before { background: radial-gradient(circle 
 .sign-in { margin: var(--s-4) 0 var(--s-2); }
 .sign-in label { display: block; font-weight: 700; margin-bottom: 0.35rem; }
 .sign-in .try-row { flex-wrap: wrap; }
-.sign-in .try-input { flex: 1 1 14rem; min-width: 0; font-family: var(--body); font-weight: 400; font-size: var(--t-md); text-transform: none; letter-spacing: normal; }
+.sign-in .try-input { width: 100%; margin-bottom: var(--s-3); font-family: var(--body); font-weight: 400; font-size: var(--t-md); text-transform: none; letter-spacing: normal; }
+.sign-in .account-actions { margin-top: 0; }
+.sign-in .account-actions .btn { flex: 1 1 0; }
+.sign-in .fine { margin: var(--s-2) 0 0; }
 .sign-in .form-msg { color: var(--slip); }
 .account-msg { padding: 0.6rem 0.8rem; border-radius: var(--r-sm); background: var(--rope-soft); color: var(--ink); }
 .account-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-4); }

@@ -155,7 +155,7 @@ function accountChanged(s) {
   if ($("#account").open) renderAccount();
 }
 
-let linkSentTo = "";
+let linkSentTo = null; // { email, kind: "link" | "confirm" }
 function renderAccount() {
   const s = account.state;
   const body = $("#accountBody");
@@ -171,7 +171,7 @@ function renderAccount() {
       ? `Synced at ${new Date(s.lastSync).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}.` : "Not synced yet.";
     body.innerHTML = `
       <p>Signed in as <strong>${esc(s.email)}</strong>.</p>
-      <p class="fine">Your streak, stats and calendar are saved to your account. Sign in on another device with the same email to pick them up there. Each day's climb is still one attempt, across all your devices.</p>
+      <p class="fine">Your streak, stats, personal best and calendar are saved to your account, and each finished climb is scored by the server. Sign in on another device to pick them up there. Each day's climb is still one attempt, across all your devices.</p>
       ${msg}
       <p class="fine" aria-live="polite">${when}</p>
       <div class="account-actions">
@@ -182,37 +182,65 @@ function renderAccount() {
     $("#signOutBtn").addEventListener("click", () => account.signOut());
   } else if (linkSentTo) {
     body.innerHTML = `
-      <p>Check your email. We sent a sign-in link to <strong>${esc(linkSentTo)}</strong>.</p>
-      <p class="fine">Open it on this device to sign in here. It can take a minute to arrive, and it may land in spam.</p>
-      <button class="btn ghost" type="button" id="otherEmailBtn">Use a different email</button>`;
-    $("#otherEmailBtn").addEventListener("click", () => { linkSentTo = ""; renderAccount(); });
+      <p>Check your email. We sent ${linkSentTo.kind === "confirm" ? "a link to confirm your account" : "a sign-in link"} to <strong>${esc(linkSentTo.email)}</strong>.</p>
+      <p class="fine">${linkSentTo.kind === "confirm"
+        ? "Open it to confirm your account, then sign in here with your password."
+        : "Open it on this device to sign in here."} It can take a minute to arrive, and it may land in spam.</p>
+      <button class="btn ghost" type="button" id="otherEmailBtn">Back to sign in</button>`;
+    $("#otherEmailBtn").addEventListener("click", () => { linkSentTo = null; renderAccount(); });
   } else {
     body.innerHTML = `
-      <p>Sign in to keep your streak and stats on every device. It's optional, and there's no password: we email you a link.</p>
+      <p>Sign in to keep your streak, stats and personal best on every device. It's optional: you can always play as a guest.</p>
       ${msg}
       <form id="signInForm" class="sign-in" novalidate>
         <label for="emailInput">Email</label>
-        <div class="try-row">
-          <input id="emailInput" class="try-input" type="email" autocomplete="email" inputmode="email" spellcheck="false" required placeholder="you@example.com">
-          <button class="btn primary" type="submit" id="sendLinkBtn">Email me a link</button>
+        <input id="emailInput" class="try-input" type="email" autocomplete="email" inputmode="email" spellcheck="false" required placeholder="you@example.com">
+        <label for="passwordInput">Password</label>
+        <input id="passwordInput" class="try-input" type="password" autocomplete="current-password" minlength="${account.MIN_PASSWORD}" placeholder="At least ${account.MIN_PASSWORD} characters">
+        <div class="account-actions">
+          <button class="btn primary" type="submit" id="signInBtn" value="in">Sign in</button>
+          <button class="btn ghost" type="submit" id="registerBtn" value="up">Create account</button>
         </div>
         <p id="signInMsg" class="form-msg" role="status" aria-live="polite"></p>
+        <p class="fine">No password? <button class="link-btn" type="button" id="sendLinkBtn">Email me a sign-in link</button> instead.</p>
       </form>
-      <p class="fine">Climbs you've already finished in this browser are added to your account when you sign in.</p>`;
-    $("#signInForm").addEventListener("submit", async (e) => {
+      <p class="fine">Signing in adds this browser's climbs from today and yesterday to your account. Older climbs stay in this browser. Scores on your account are checked by the server.</p>`;
+    const form = $("#signInForm");
+    const say = (text) => { $("#signInMsg").textContent = text; };
+    const busy = (btn, label) => {
+      form.querySelectorAll("button").forEach((b) => { b.disabled = Boolean(label); });
+      if (label) { btn.dataset.label = btn.textContent; btn.textContent = label; } else if (btn.dataset.label) btn.textContent = btn.dataset.label;
+    };
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const btn = $("#sendLinkBtn");
+      const btn = e.submitter || $("#signInBtn");
+      const creating = btn.value === "up";
+      say("");
+      busy(btn, creating ? "Creating…" : "Signing in…");
       const email = $("#emailInput").value;
-      btn.disabled = true;
-      btn.textContent = "Sending…";
-      const res = await account.sendLink(email);
-      btn.disabled = false;
-      btn.textContent = "Email me a link";
+      const res = creating ? await account.register(email, $("#passwordInput").value) : await account.signIn(email, $("#passwordInput").value);
+      if (!$("#signInForm")) return; // signed in meanwhile: the dialog has redrawn
+      busy(btn, null);
       if (res.error) {
-        $("#signInMsg").textContent = res.error;
+        say(res.error);
+        (/password/i.test(res.error) ? $("#passwordInput") : $("#emailInput")).focus();
+      } else if (res.confirm) {
+        linkSentTo = { email: email.trim(), kind: "confirm" };
+        renderAccount();
+      }
+    });
+    $("#sendLinkBtn").addEventListener("click", async () => {
+      const btn = $("#sendLinkBtn");
+      say("");
+      busy(btn, "Sending…");
+      const email = $("#emailInput").value;
+      const res = await account.sendLink(email);
+      busy(btn, null);
+      if (res.error) {
+        say(res.error);
         $("#emailInput").focus();
       } else {
-        linkSentTo = email.trim();
+        linkSentTo = { email: email.trim(), kind: "link" };
         renderAccount();
       }
     });

@@ -241,6 +241,21 @@ test("days this browser knows more about are pushed, finished account days are n
   assert.equal(row.started_at, iso(START));
   assert.equal(row.game.done, true);
   assert.equal(store.exportDay(9), null);
+  assert.equal(row.result, undefined, "results are never sent: the server scores the climb");
+});
+
+test("only today and yesterday go to an account, and finished unscored days are sent for scoring", () => {
+  store.recordAttempt(20, START);
+  store.recordAttempt(23, START);
+  store.recordAttempt(24, START);
+  assert.deepEqual(store.daysToPush([], 24).filter((d) => d >= 20), [23, 24], "day 20 stays in this browser");
+  const done = game();
+  const open = game({ done: false, endReason: null, summit: { guesses: [], done: false, solved: false, points: 0 } });
+  assert.deepEqual(store.daysToFinish([
+    { day: 23, game: done, result: null },
+    { day: 24, game: open, result: null },
+    { day: 22, game: done, result: { metres: 100 } },
+  ]), [23]);
 });
 
 test("saving a day tells the account sync, merging from it doesn't", () => {

@@ -1,4 +1,6 @@
-import { sharesRoot, linkStrength, associationStrength } from "./rules.js";
+import { fitsFor, judgeLinkData, judgeSummitData, unlinkedClues } from "./judge-core.js";
+
+export { fitsFor };
 
 // Scores guesses.
 //
@@ -51,51 +53,18 @@ function loadWords() {
 }
 
 export async function ready() {
-  await Promise.all([loadJson("assoc"), loadJson("freq"), loadWords()]);
+  await loadData();
 }
 
-// The best link type between a guess (or its singular) and one clue.
-function linkType(assoc, word, clue) {
-  const table = assoc.links?.[clue];
-  if (!table) return null;
-  let best = null;
-  for (const w of forms(word)) {
-    const t = table[w];
-    if (t && (!best || linkStrength(t) > linkStrength(best))) best = t;
-  }
-  return best;
-}
-
-// Plurals count as the same word: SPOTS links where SPOT does.
-function forms(word) {
-  const out = [word];
-  if (word.length > 3 && word.endsWith("S")) out.push(word.slice(0, -1));
-  if (word.length > 4 && word.endsWith("ES")) out.push(word.slice(0, -2));
-  return out;
-}
-
-// How common a word is (wordfreq Zipf), or undefined when we don't know.
-// Unknown words get no rarity bonus, so missing data can't inflate a score.
-function zipfOf(freq, word) {
-  for (const w of forms(word)) if (Number.isFinite(freq[w])) return freq[w];
-  return undefined;
-}
-
-// Every word that links all the clues, rarest first, without plural
-// duplicates. strongOnly keeps words whose every link is strong.
-export function fitsFor(assoc, freq, clues, { strongOnly = false } = {}) {
-  const tables = clues.map((c) => assoc.links?.[c] || {});
-  const ok = (t) => t && (!strongOnly || linkStrength(t) === 1);
-  return Object.keys(tables[0])
-    .filter((w) => tables.every((t) => ok(t[w])) && !clues.includes(w) &&
-      !forms(w).slice(1).some((single) => tables[0][single]))
-    .sort((a, b) => (freq[a] ?? 9) - (freq[b] ?? 9));
-}
+const loadData = async () => {
+  const [assoc, freq, words] = await Promise.all([loadJson("assoc"), loadJson("freq"), loadWords()]);
+  return { assoc, freq, words };
+};
 
 // The rarest strong fits, for the reveal after a pitch.
 export async function rarestLinks(clues, limit = 3) {
   try {
-    const [assoc, freq] = await Promise.all([loadJson("assoc"), loadJson("freq")]);
+    const { assoc, freq } = await loadData();
     return fitsFor(assoc, freq, clues, { strongOnly: true }).slice(0, limit);
   } catch {
     return [];
@@ -120,73 +89,43 @@ async function callApi(body) {
 
 const dataError = () => ({ error: navigator.onLine === false ? "offline" : "data" });
 
-// "Close to the best word": it associates with the best word in any way
-// (MOON for LIGHT, moonlight) or shares a root with any word that fits
-// (LIGHTER, STONY).
-function isNear(word, assoc, freq, clues, answer) {
-  if (linkType(assoc, word, answer)) return true;
-  const fits = new Set([answer, ...fitsFor(assoc, freq, clues)]);
-  for (const fit of fits) if (sharesRoot(word, fit)) return true;
-  return false;
-}
-
 // Returns one of:
 //   { linked: [clue...], types: { clue: code }, strength, zipf, near }
 //                                       a judged guess (always earns height)
 //   { unknown: true }                   not a word we know: refused, no try used
 //   { error }                           couldn't judge right now: no try used
 export async function judgeLink(word, clues, answer) {
-  let assoc, freq, words;
+  let data;
   try {
-    [assoc, freq, words] = await Promise.all([loadJson("assoc"), loadJson("freq"), loadWords()]);
+    data = await loadData();
   } catch {
     return dataError();
   }
-  const zipf = zipfOf(freq, word);
-  const types = {};
-  // The puzzle's own answer always fits every clue fully.
-  if (word === answer) {
-    for (const c of clues) types[c] = linkType(assoc, word, c) || "i";
-    return { linked: [...clues], types, strength: 1, zipf, near: true, intended: true };
-  }
-  for (const c of clues) {
-    const t = linkType(assoc, word, c);
-    if (t) types[c] = t;
-  }
-  const unsure = clues.filter((c) => !types[c] && c !== word);
+  const extra = {};
+  const unsure = word === answer ? [] : unlinkedClues(data, word, clues);
   if (unsure.length && JUDGE_ENABLED) {
     const res = await callApi({ kind: "link", word, clues: unsure });
     if (res.error) return { error: res.error };
     // Treat the reply as untrusted: only explicit true counts.
-    for (const c of unsure) if (res.links && res.links[c] === true) types[c] = "j";
+    for (const c of unsure) if (res.links && res.links[c] === true) extra[c] = "j";
   }
-  const linked = clues.filter((c) => types[c]);
-  const known = linked.length > 0 || forms(word).some((w) => words.has(w));
-  if (!known) return { unknown: true };
-  return {
-    linked, types, strength: associationStrength(types, clues), zipf,
-    near: isNear(word, assoc, freq, clues, answer),
-  };
+  return judgeLinkData(data, word, clues, answer, extra);
 }
 
 // Returns { exact, near, close } (close 0 to 1), { unknown } or { error }.
 export async function judgeSummit(word, answer, definition) {
-  if (word === answer || forms(word).includes(answer)) return { exact: true, near: true, close: 1 };
-  let words, assoc;
+  let data;
   try {
-    [words, assoc] = await Promise.all([loadWords(), loadJson("assoc")]);
+    data = await loadData();
   } catch {
     return dataError();
   }
-  if (!forms(word).some((w) => words.has(w))) return { unknown: true };
-  // Close: shares a root (EPHEMERA) or a WordNet sense (TERSE for LACONIC).
-  const senses = assoc.summit?.[answer] || [];
-  const near = sharesRoot(word, answer) || forms(word).some((w) => senses.includes(w));
-  if (!JUDGE_ENABLED) return { exact: false, near, close: 0 };
+  const verdict = judgeSummitData(data, word, answer);
+  if (verdict.unknown || verdict.exact || !JUDGE_ENABLED) return verdict;
   const res = await callApi({ kind: "summit", word, answer, definition });
   if (res.error) return { error: res.error };
   const close = Number(res.close);
-  return { exact: false, near, close: Number.isFinite(close) ? Math.max(0, Math.min(1, close)) : 0 };
+  return { ...verdict, close: Number.isFinite(close) ? Math.max(0, Math.min(1, close)) : 0 };
 }
 
 export const ERROR_TEXT = {

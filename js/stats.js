@@ -157,6 +157,7 @@ function validateResult(r) {
     ...opt("partials", 0, PITCHES),
     ...opt("linked", 0, PITCHES),
     ...(r.endReason === "timeout" || r.endReason === "finished" ? { endReason: r.endReason } : {}),
+    ...(r.verified === true ? { verified: true } : {}), // scored again by the server (accounts)
   };
 }
 
@@ -300,7 +301,10 @@ export function mergeRemote(rows) {
       touched.add(n);
     }
     const g = row.game ? validateGame(row.game) : null;
-    if (g && progress(g) > progress(data.games[n] || null)) {
+    // A climb the server has scored replaces this browser's copy outright.
+    const scored = row.result?.verified === true && g?.done;
+    if (g && (progress(g) > progress(data.games[n] || null) ||
+        (scored && JSON.stringify(g) !== JSON.stringify(data.games[n])))) {
       data.games[n] = g;
       touched.add(n);
     }
@@ -314,29 +318,40 @@ export function mergeRemote(rows) {
   return [...touched];
 }
 
-// The account row for one day, or null if there's nothing to save.
+// The account row for one day, or null if there's nothing to save. Results
+// are never sent: the server scores the climb's words itself.
 export function exportDay(n) {
   const data = load();
   const game = data.games[n] || null;
-  const result = data.results[n] || null;
   const start = data.attempts[n] || game?.startedAt || null;
-  if (!game && !result && !start) return null;
-  return { day: n, started_at: start ? new Date(start).toISOString() : null, game, result };
+  if (!game && !start) return null;
+  return { day: n, started_at: start ? new Date(start).toISOString() : null, game };
 }
 
-// Days this browser knows more about than the account does.
-export function daysToPush(rows) {
+// Days this browser knows more about than the account does. Only today and
+// yesterday can be added to an account (older days stay in this browser),
+// so an account's history can't be backfilled.
+export function daysToPush(rows, today = null) {
   const data = load();
   const remote = new Map((Array.isArray(rows) ? rows : []).map((r) => [Number(r.day), r]));
-  const days = new Set([...Object.keys(data.games), ...Object.keys(data.attempts), ...Object.keys(data.results)].map(Number));
+  const days = new Set([...Object.keys(data.games), ...Object.keys(data.attempts)].map(Number));
   return [...days].filter((n) => {
+    if (Number.isFinite(today) && n < today - 1) return false;
     const r = remote.get(n);
     if (!r) return true;
-    if (r.result) return false; // finished on the account: nothing more to say
-    if (data.results[n]) return true;
+    if (r.result) return false; // scored on the account: nothing more to say
     const g = r.game ? validateGame(r.game) : null;
     return progress(data.games[n] || null) > progress(g);
   }).sort((a, b) => a - b);
+}
+
+// Days whose climb is finished on the account but not yet scored by the server.
+export function daysToFinish(rows) {
+  return (Array.isArray(rows) ? rows : []).filter((r) => {
+    if (r.result || !r.game) return false;
+    const g = validateGame(r.game);
+    return g?.done && g.endReason === "finished";
+  }).map((r) => Number(r.day)).sort((a, b) => a - b);
 }
 
 export const seenHelp = () => load().seenHelp;

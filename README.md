@@ -49,19 +49,21 @@ Add `?test` to the link to play tomorrow's mountain now. `?test=5` plays No. 5, 
 
 ### Accounts (optional)
 
-The person icon opens sign-in. It's an emailed link (Supabase Auth), so there's no password. Signing in saves each day's climb to your account, so your streak, stats and calendar follow you to other devices. A climb begun on one device carries on, with the same timer, on another. Climbs already finished in the browser are added on first sign-in. Signing out keeps the browser's copy. If accounts can't be reached, the game plays exactly as before and syncs next time.
+Playing needs no account: a guest's climbs, streak and stats are saved in that browser only (`localStorage` never syncs between devices). The person icon opens the account dialog: **create an account** or **sign in** with an email and password, or get an **emailed sign-in link** instead. New accounts confirm their email first. Wrong passwords, unconfirmed emails, existing accounts, weak passwords, too many tries and network failures each get a plain message saying what to do. Signing out keeps the browser's copy.
 
-The account table (`climbs`, one row per player per day) enforces what the browser can't:
+Signed in, each day's climb is saved to the account (Supabase: Auth plus one table, `climbs`), so streak, stats, personal best and calendar follow you, and a climb begun on one device carries on, with the same pitch timers, on another. Signing in adds this browser's climbs from today and yesterday; older guest climbs stay in that browser, so an account's history can't be backfilled.
 
-- **Row-level security:** each player can read and write only their own rows.
-- **Start time:** stamped by the server and can't be moved later.
-- **Results:** a finished result is write-once and can't be edited.
-- **Deletes and future days:** rows can't be deleted, so a day can't be wiped and replayed, and future days can't be opened.
-- **Timer:** a climb more than 7 minutes past its start can only be closed, not continued. (This server rule predates per-pitch timers and needs revisiting: a slow player can now take longer than 7 minutes in total.)
+The rules live on the server (`supabase/migrations/`), not in the browser:
 
-### What the browser alone can and can't protect
+- **Private rows:** row-level security, so each player reads and writes only their own rows. Signed-out visitors can't read the table.
+- **Server-scored results:** players never write results. After a finished climb is saved, the `finish-climb` Edge Function (`supabase/functions/finish-climb/`) reads the saved words, judges every one again with the game's own code (`js/verify.js`, `js/judge-core.js`, `js/rules.js`), and records the score once. A height edited into a browser save is ignored: the account (and then the browser) shows the server's score. Made-up words or impossible guess orders reject the climb.
+- **Start time:** stamped by the server and never moves.
+- **Days:** future days can't be opened, older days can't be added, rows can't be deleted, and a climb's words freeze once it's scored or two days have passed.
+- **Secrets:** none in the repo. The publishable key in `js/account.js` is public by design; the Edge Function uses the server key Supabase provides to it.
 
-Without an account, everything is enforced in the browser. That stops refreshes, double submits, URL tricks and changed device clocks (time comes from the server's `Date` header). It **can't** stop someone who edits or clears their local storage, uses a private window, or plays on a second device. Signed-in players get the server-side rules above. Scores are still computed in the browser, so a determined player could submit an invented height. A public leaderboard would need scoring moved to the server.
+### What the server can and can't check
+
+It can check every word and score, so a saved height can't be inflated. It can't check *when* each word was typed: per-pitch timing is enforced by the browser (refresh, tab and clock tricks are covered there, see Days above), and the puzzle list (`js/puzzles.js`) is public, so a determined player could look answers up. A public leaderboard would need puzzles kept on the server and each word sent to it as it's played.
 
 ## Architecture
 
@@ -76,7 +78,9 @@ js/puzzles.js            the daily puzzles, mountain names, validation
 js/game.js               game loop with explicit phases, rendering, input, dialogs
 js/judge.js              dictionary judge, optional AI judge, error texts
 js/stats.js              versioned save, validation, migration, streaks, account merge
-js/account.js            optional sign-in (Supabase, email link) and sync
+js/account.js            optional accounts (Supabase: password or email link) and sync
+js/judge-core.js         the dictionary judge, shared by the browser and the server
+js/verify.js             the server's re-scoring of a finished climb
 js/climb.js              mountain, rope, route labels, climber
 js/fx.js                 guess feedback animations (visual only)
 js/share.js              spoiler-free share text, share sheet or clipboard
@@ -122,15 +126,22 @@ Puzzles loop once the list runs out. Each day maps by number, never by load orde
 ## Tests
 
 ```
-npm test            # 90 unit tests, no network
+npm test            # 109 unit tests, no network: rules, scoring, puzzles, timers, storage, server scoring, database rules (PGlite)
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
-npm run test:e2e    # 192 browser checks: the full daily cycle, per-pitch timers, time-outs, refresh, hidden tabs, clock changes, rollover, calendar, layouts 320–1440, light/dark
+npm run test:e2e    # 210 browser checks: the full daily cycle, per-pitch timers, time-outs, refresh, hidden tabs, clock changes, rollover, calendar, layouts 320–1440, light/dark
 ```
 
-The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`. Accounts are tested against a stand-in client (`tests/e2e/fake_supabase.js`), and the real Supabase project is blocked during runs.
+The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`. Accounts are tested against a stand-in client (`tests/e2e/fake_supabase.js`) that mirrors the database rules and scores climbs with the real `js/verify.js`; its shared mode lets two browser sessions use one account. The real Supabase project is blocked during runs. `npm install` brings PGlite, which the database-rule tests run on.
 
 ## Deployment
 
-Pushing to `main` deploys both GitHub Pages (static files) and Vercel (static files plus `api/score.js`). The GitHub Pages site calls the function on the Vercel production URL. Vercel deployments call their own `/api/score`. Supabase is project `smkxqwgikxpiaptyszrd` (Sydney). Its publishable key is in `js/account.js` by design, and row-level security protects the data. Its Auth settings must list both sites as redirect URLs. No secrets exist in the repo: the function authenticates to AI Gateway with Vercel's OIDC token.
+Pushing to `main` deploys GitHub Pages (static files) and Vercel (static files plus `api/score.js`). The GitHub Pages site calls the AI judge on the Vercel production URL. Vercel deployments call their own `/api/score`.
+
+Accounts use Supabase project `smkxqwgikxpiaptyszrd` (Sydney). After the site is live:
+
+1. **Database rules:** apply `supabase/migrations/*.sql` (Supabase CLI `supabase db push`, or the SQL editor).
+2. **Edge Function:** `npm run build:function`, then `supabase functions deploy finish-climb`. It reads the word data from the live site, so deploy the site first.
+3. **Auth settings** (Dashboard, Authentication, URL Configuration): set **Site URL** to `https://liam-ohalloran.github.io/Ascent/` and add both sites to **Redirect URLs** (`https://liam-ohalloran.github.io/Ascent/**`, `https://ascent-ruddy-pi.vercel.app/**`). Without this, confirmation and sign-in links open `localhost:3000`.
+4. **Email:** Supabase's built-in email has a low hourly limit. For real players, add custom SMTP (Authentication, Emails).
 
 **Design:** one token system in `css/style.css` (colour, type scale, spacing, radius tiers). The mountain panel is the one loud element: its sky, rock and weather change through the five zones (warm foothills light, forest, falling snow on the ridge, rain on the storm wall, a clear summit), in light and dark. The main action on each screen uses the rope colour; everything else is outlined. Earlier [Figma file](https://www.figma.com/design/tIzXwD9WkiC6m9KrQ1w3i5) (earlier glacier palette, layout still current).
