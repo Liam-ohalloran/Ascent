@@ -594,7 +594,7 @@ body[data-zone="summit"] .mountain::before { background: radial-gradient(circle 
 }
 .chain .seed { color: var(--rock); }
 .chain .arrow { color: var(--rope-ink); }
-.chain .peak { color: #fff; background: var(--rope-ink); padding: 0 var(--s-2); border-radius: var(--r-sm); }
+.chain .peak { color: var(--cta-ink); background: var(--cta); padding: 0 var(--s-2); border-radius: var(--r-sm); }
 .definition { margin: 0 0 var(--s-3); color: var(--rock); }
 .definition strong { color: var(--ink); }
 
@@ -629,15 +629,15 @@ body[data-zone="summit"] .mountain::before { background: radial-gradient(circle 
 .cal-week, .cal { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s-1); }
 .cal-week li { text-align: center; color: var(--mist); font-size: 0.75rem; font-weight: 700; }
 .cal li { aspect-ratio: 1; }
-.cal-off span { display: grid; place-items: center; height: 100%; color: var(--line); font-size: 0.85rem; }
+.cal-off span { display: grid; place-items: center; height: 100%; color: var(--mist); font-size: 0.85rem; }
 .cal-day {
   width: 100%; height: 100%; min-height: 40px; position: relative;
   border: 2px solid var(--line); border-radius: var(--r-sm); background: transparent;
   font-weight: 700; font-size: 0.9rem; display: grid; place-items: center;
 }
-.cal-day i { position: absolute; top: 0; right: 0.2rem; font-style: normal; font-size: 0.65rem; color: #fff; }
+.cal-day i { position: absolute; top: 0; right: 0.2rem; font-style: normal; font-size: 0.65rem; color: var(--cta-ink); }
 .c-done { background: var(--rope-soft); border-color: var(--rope); }
-.c-summit { background: var(--rope-ink); border-color: var(--rope-ink); color: #fff; }
+.c-summit { background: var(--cta); border-color: var(--cta); color: var(--cta-ink); }
 .c-missed, .c-unfinished { border-style: dashed; color: var(--mist); }
 .c-today, .c-climbing { border-color: var(--ink); }
 .cal-day.sel { outline: 3px solid var(--ink); outline-offset: 1px; }

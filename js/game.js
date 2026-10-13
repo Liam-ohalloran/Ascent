@@ -566,8 +566,8 @@ function renderPitch(i, { reveal = false } = {}) {
   const tryNo = s.guesses.length;
   const b = rules.bestGuess(s.guesses);
   const prompt = t.clues.length === 2
-    ? "Find a word that fits between both clues. Every real word climbs, rare fits climb highest."
-    : "Find a word that fits between all three clues. Every real word climbs, rare fits climb highest.";
+    ? "Find one word that links both clues. Every real word climbs, rarer links climb highest."
+    : "Find one word that links all three clues. Every real word climbs, rarer links climb highest.";
   const keep = tryNo > 0
     ? `<div class="actions"><button class="btn ghost" type="button" id="keepBtn">Keep ${fmt(b.points)} m and move on</button></div>` : "";
   stage.innerHTML = `
