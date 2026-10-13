@@ -3,5 +3,14 @@
   "private": true,
   "type": "module",
   "description": "Ascent, a daily word climb. Static site plus one Vercel function (api/score.js).",
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/unit/*.test.js",
+    "test:tz": "TZ=America/Los_Angeles node --test tests/unit/daily.test.js && TZ=Pacific/Kiritimati node --test tests/unit/daily.test.js",
+    "test:e2e": "python3 tests/e2e/journeys.py",
+    "check": "node --check js/*.js api/*.js",
+    "build:words": "python3 scripts/build_links.py"
+  }
 }

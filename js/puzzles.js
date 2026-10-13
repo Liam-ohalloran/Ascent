@@ -8,11 +8,12 @@
 // Pitch 5 is the summit: an uncommon word revealed through three
 // definition clues, broad to specific.
 //
-// To add a day, copy a block and append it. Answers are case-insensitive.
-// `alt` lists other answers that should also be accepted.
+// To add a day, copy a block and append it. Each mountain has a made-up
+// name that gives nothing away. Words are upper case A to Z.
 
 export const PUZZLES = [
   {
+    name: "Kestrel Spire",
     pitches: [
       { clues: ["SUN", "FIRE"], answer: "LIGHT" },
       { clues: ["HOUSE"], answer: "GREEN" },
@@ -29,6 +30,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Mount Brindle",
     pitches: [
       { clues: ["SNOW", "BASKET"], answer: "BALL" },
       { clues: ["CAR"], answer: "PARK" },
@@ -45,6 +47,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Cinder Horn",
     pitches: [
       { clues: ["TOOTH", "HAIR"], answer: "BRUSH" },
       { clues: ["FIRE"], answer: "WOOD" },
@@ -61,6 +64,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Wren Peak",
     pitches: [
       { clues: ["RAIN", "WATER"], answer: "FALL" },
       { clues: ["MARE"], answer: "NIGHT" },
@@ -77,6 +81,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Mount Alder",
     pitches: [
       { clues: ["STAR", "JELLY"], answer: "FISH" },
       { clues: ["SUPER"], answer: "BOWL" },
@@ -93,6 +98,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Saltback Ridge",
     pitches: [
       { clues: ["BUTTER", "DRAGON"], answer: "FLY" },
       { clues: ["NEWS"], answer: "PAPER" },
@@ -109,6 +115,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "The Lantern",
     pitches: [
       { clues: ["CUP", "PAN"], answer: "CAKE" },
       { clues: ["CUT"], answer: "SHORT" },
@@ -125,6 +132,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Mount Quill",
     pitches: [
       { clues: ["BED", "BATH"], answer: "ROOM" },
       { clues: ["MATE"], answer: "CLASS" },
@@ -141,6 +149,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Harrow Peak",
     pitches: [
       { clues: ["EAR", "HEAD"], answer: "PHONE" },
       { clues: ["WATCH"], answer: "SMART" },
@@ -157,6 +166,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Mount Ember",
     pitches: [
       { clues: ["HONEY", "HIVE"], answer: "BEE" },
       { clues: ["SIZE"], answer: "QUEEN" },
@@ -173,6 +183,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Larkspur Dome",
     pitches: [
       { clues: ["SKATE", "SURF"], answer: "BOARD" },
       { clues: ["POST"], answer: "CARD" },
@@ -189,6 +200,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Granite Sister",
     pitches: [
       { clues: ["EYE", "FIRE"], answer: "BALL" },
       { clues: ["NOTE"], answer: "FOOT" },
@@ -205,6 +217,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Mount Corrie",
     pitches: [
       { clues: ["TEA", "COFFEE"], answer: "POT" },
       { clues: ["DOG"], answer: "HOT" },
@@ -221,6 +234,7 @@ export const PUZZLES = [
     },
   },
   {
+    name: "Falcon Tor",
     pitches: [
       { clues: ["DOOR", "BLUE"], answer: "BELL" },
       { clues: ["CODE"], answer: "BAR" },
@@ -238,6 +252,29 @@ export const PUZZLES = [
   },
 ];
 
+const WORD = /^[A-Z]{2,16}$/;
+
+// Returns a description of the first problem with a day, or null if it's fine.
+// Checked before a day is played, so bad data shows an error, not a crash.
+export function validateDay(raw) {
+  if (!raw || typeof raw !== "object") return "missing";
+  if (typeof raw.name !== "string" || !raw.name) return "no name";
+  if (!Array.isArray(raw.pitches) || raw.pitches.length !== 4) return "needs 4 link pitches";
+  for (const [i, p] of raw.pitches.entries()) {
+    if (!WORD.test(p?.answer || "")) return `pitch ${i + 1} answer`;
+    const want = i === 0 || i === 3 ? 2 : 1; // new clues (pitch 4 has three in total)
+    if (!Array.isArray(p.clues) || p.clues.length !== want || !p.clues.every((c) => WORD.test(c))) {
+      return `pitch ${i + 1} clues`;
+    }
+  }
+  const s = raw.summit;
+  if (!WORD.test(s?.answer || "")) return "summit answer";
+  if (!Array.isArray(s.clues) || s.clues.length !== 3 || !s.clues.every((c) => typeof c === "string" && c)) {
+    return "summit needs 3 clues";
+  }
+  return null;
+}
+
 // Pitches 2 to 4 list only their NEW clues. The carried rope word
 // (the previous answer) is added in front automatically.
 export function buildDay(raw) {
@@ -247,5 +284,5 @@ export function buildDay(raw) {
     answer: p.answer,
     alt: p.alt || [],
   }));
-  return { pitches, summit: { ...raw.summit, alt: raw.summit.alt || [] } };
+  return { name: raw.name, pitches, summit: { ...raw.summit, alt: raw.summit.alt || [] } };
 }

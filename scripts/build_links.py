@@ -28,6 +28,7 @@ days = json.loads(subprocess.check_output(
 
 extra = json.loads((ROOT / "scripts/phrase_links.json").read_text())
 extra.pop("_note", None)
+EXCLUDE = set(extra.pop("_exclude", []))
 
 clues = sorted({c for d in days for p in d["pitches"] for c in p["clues"]})
 vocab = [w for w in top_n_list("en", 50000)
@@ -40,6 +41,8 @@ for c in clues:
     found = set()
     for w in vocab:
         if w == lc:
+            continue
+        if w.upper() in EXCLUDE:
             continue
         if z(lc + w, "en") >= MIN_COMPOUND or z(w + lc, "en") >= MIN_COMPOUND:
             found.add(w.upper())
@@ -62,7 +65,14 @@ out = {c: sorted(ws) for c, ws in links.items()}
 # How common each scoring word is (Zipf scale: 7 = "the", 3 = rare-ish).
 # Rarer words that still link earn more height.
 words = set().union(*out.values())
-freq = {w: round(z(w.lower(), "en"), 2) for w in sorted(words)}
+# A plural scores like its singular, so BALLS can't beat BALL by being rarer.
+def base_freq(w):
+    f = z(w.lower(), "en")
+    for single in (w[:-1], w[:-2]) if w.endswith("ES") else (w[:-1],) if w.endswith("S") else ():
+        if len(single) >= 3:
+            f = max(f, z(single.lower(), "en"))
+    return round(f, 2)
+freq = {w: base_freq(w) for w in sorted(words)}
 (ROOT / "data/freq.json").write_text(json.dumps(freq, separators=(",", ":")))
 path = ROOT / "data/links.json"
 path.write_text(json.dumps(out, separators=(",", ":")))
