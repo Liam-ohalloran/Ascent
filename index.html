@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ascent</title>
+  <meta name="description" content="A daily word climb. Find the word that links the clues, carry it up the rope, and reach the summit word.">
+  <meta name="theme-color" content="#E4ECEF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#101B24" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="Ascent">
+  <meta property="og:description" content="A daily word climb. Five pitches, one rope, one summit word.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Big+Shoulders+Display:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="bar">
+      <h1 class="logo">Ascent</h1>
+      <nav class="bar-actions" aria-label="Game menu">
+        <button class="icon-btn" data-open="help" aria-label="How to play">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7"/><circle cx="12" cy="17" r=".6" class="fill"/></svg>
+        </button>
+        <button class="icon-btn" data-open="archive" aria-label="Past climbs">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
+        </button>
+        <button class="icon-btn" data-open="stats" aria-label="Your stats">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18M6 20l5-9 3 4 4-8"/></svg>
+        </button>
+      </nav>
+    </header>
+
+    <p class="day-line" id="dayLine"></p>
+
+    <section class="mountain" aria-label="Your climb">
+      <div class="altitude">
+        <span class="alt-num" id="altNum">0</span><span class="alt-unit">m</span>
+        <span class="alt-tier" id="altTier">Base camp</span>
+      </div>
+      <svg id="mountainSvg" viewBox="0 0 360 210" preserveAspectRatio="xMidYMax meet" overflow="visible" role="img" aria-labelledby="mtnDesc">
+        <desc id="mtnDesc">A mountain with five pitches marked on the route to the summit.</desc>
+      </svg>
+    </section>
+
+    <main id="stage" class="stage" aria-live="polite"></main>
+
+    <div class="keyboard" id="keyboard" aria-label="Keyboard"></div>
+  </div>
+
+  <dialog id="help" class="sheet" aria-labelledby="helpTitle">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <h2 id="helpTitle">How to climb</h2>
+    <p>Each day there is one mountain with five pitches. Everyone climbs the same one.</p>
+    <ol class="steps">
+      <li><strong>Find the link.</strong> On pitches 1 to 4, find one word that joins every clue, like <em>SUN</em> and <em>FIRE</em> both joining <em>LIGHT</em>.</li>
+      <li><strong>Carry the rope.</strong> Each answer becomes the first clue of the next pitch, so the whole climb is one chain.</li>
+      <li><strong>Reach the summit.</strong> Pitch 5 is an uncommon word. You start with a vague definition and get a clearer one after each wrong guess.</li>
+    </ol>
+    <p>You get three guesses on each link and four at the summit. Fewer guesses means more metres. Revealing the first letter costs 200 m. If you miss a pitch, the answer is shown and you keep climbing.</p>
+    <p class="fine">Each pitch is worth up to 1,000 m. A perfect day is 5,000 m. A new mountain appears at midnight.</p>
+    <button class="btn primary" data-close>Start climbing</button>
+  </dialog>
+
+  <dialog id="stats" class="sheet" aria-labelledby="statsTitle">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <h2 id="statsTitle">Your climbs</h2>
+    <div id="statsBody"></div>
+  </dialog>
+
+  <dialog id="archive" class="sheet" aria-labelledby="archiveTitle">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <h2 id="archiveTitle">Past climbs</h2>
+    <p class="fine">Replay any earlier mountain. Replays don't change your streak.</p>
+    <ul id="archiveList" class="archive"></ul>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>

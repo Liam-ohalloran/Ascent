@@ -1,0 +1,251 @@
+// Daily puzzles. Puzzle 1 is the launch day (see LAUNCH in daily.js).
+//
+// Each day has five pitches.
+// Pitches 1 to 4 are bridges: find ONE word that joins every clue
+// (as a compound word or common phrase, before or after the clue).
+// The answer to each pitch is carried up the rope and becomes the
+// first clue of the next pitch.
+// Pitch 5 is the summit: an uncommon word revealed through three
+// definition clues, broad to specific.
+//
+// To add a day, copy a block and append it. Answers are case-insensitive.
+// `alt` lists other answers that should also be accepted.
+
+export const PUZZLES = [
+  {
+    pitches: [
+      { clues: ["SUN", "FIRE"], answer: "LIGHT" },
+      { clues: ["HOUSE"], answer: "GREEN" },
+      { clues: ["BACK"], answer: "ROOM" },
+      { clues: ["CHECK", "PLAY"], answer: "MATE" },
+    ],
+    summit: {
+      answer: "PETRICHOR",
+      clues: [
+        "A sensation you notice outdoors",
+        "It arrives when a dry spell ends",
+        "The earthy smell of the ground after rain",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["SNOW", "BASKET"], answer: "BALL" },
+      { clues: ["CAR"], answer: "PARK" },
+      { clues: ["WAY"], answer: "SIDE" },
+      { clues: ["ROAD", "SLIDE"], answer: "SHOW" },
+    ],
+    summit: {
+      answer: "DEFENESTRATION",
+      clues: [
+        "An act that involves a building",
+        "Someone or something leaves very suddenly",
+        "Throwing a person or thing out of a window",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["TOOTH", "HAIR"], answer: "BRUSH" },
+      { clues: ["FIRE"], answer: "WOOD" },
+      { clues: ["SHORT"], answer: "CUT" },
+      { clues: ["HORSE", "PAPER"], answer: "BACK" },
+    ],
+    summit: {
+      answer: "SONDER",
+      clues: [
+        "A feeling, not an object",
+        "It often comes while watching strangers",
+        "Realising every passer-by has a life as vivid as your own",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["RAIN", "WATER"], answer: "FALL" },
+      { clues: ["MARE"], answer: "NIGHT" },
+      { clues: ["WILD"], answer: "LIFE" },
+      { clues: ["COAST", "SAFE"], answer: "GUARD" },
+    ],
+    summit: {
+      answer: "PALIMPSEST",
+      clues: [
+        "Something linked to old writing",
+        "It has been used more than once",
+        "A page scraped clean and written over, with traces of the original still showing",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["STAR", "JELLY"], answer: "FISH" },
+      { clues: ["SUPER"], answer: "BOWL" },
+      { clues: ["LINE"], answer: "PUNCH" },
+      { clues: ["DEAD", "SIDE"], answer: "LINE" },
+    ],
+    summit: {
+      answer: "SOLILOQUY",
+      clues: [
+        "Something you might see on a stage",
+        "Only one person is involved",
+        "A speech where a character says their thoughts aloud, alone",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["BUTTER", "DRAGON"], answer: "FLY" },
+      { clues: ["NEWS"], answer: "PAPER" },
+      { clues: ["HEAVY"], answer: "WEIGHT" },
+      { clues: ["HOME", "CARE"], answer: "LESS" },
+    ],
+    summit: {
+      answer: "OSSIFY",
+      clues: [
+        "It describes a slow change",
+        "It can happen to bones and to ideas",
+        "To turn into bone, or to become rigid and unwilling to change",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["CUP", "PAN"], answer: "CAKE" },
+      { clues: ["CUT"], answer: "SHORT" },
+      { clues: ["GINGER"], answer: "BREAD" },
+      { clues: ["KEY", "SKATE"], answer: "BOARD" },
+    ],
+    summit: {
+      answer: "MELLIFLUOUS",
+      clues: [
+        "A word used to describe a sound",
+        "It is pleasant to listen to",
+        "Sweet and smooth, like flowing honey",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["BED", "BATH"], answer: "ROOM" },
+      { clues: ["MATE"], answer: "CLASS" },
+      { clues: ["HOME"], answer: "WORK" },
+      { clues: ["BOOK", "SWEAT"], answer: "SHOP" },
+    ],
+    summit: {
+      answer: "EPHEMERAL",
+      clues: [
+        "A way of describing time",
+        "A mayfly is a good example",
+        "Lasting for only a very short time",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["EAR", "HEAD"], answer: "PHONE" },
+      { clues: ["WATCH"], answer: "SMART" },
+      { clues: ["LIGHT"], answer: "STREET" },
+      { clues: ["RACE", "BOX"], answer: "CAR" },
+    ],
+    summit: {
+      answer: "QUIXOTIC",
+      clues: [
+        "It describes a person or a plan",
+        "It comes from a famous Spanish novel",
+        "Wildly idealistic and unrealistic",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["HONEY", "HIVE"], answer: "BEE" },
+      { clues: ["SIZE"], answer: "QUEEN" },
+      { clues: ["SLEEP"], answer: "BEAUTY" },
+      { clues: ["HOT", "SUN"], answer: "SPOT" },
+    ],
+    summit: {
+      answer: "VERISIMILITUDE",
+      clues: [
+        "A quality that a story can have",
+        "Writers chase it to make fiction convincing",
+        "The appearance of being true or real",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["SKATE", "SURF"], answer: "BOARD" },
+      { clues: ["POST"], answer: "CARD" },
+      { clues: ["FIRE"], answer: "WILD" },
+      { clues: ["BOB", "COPY"], answer: "CAT" },
+    ],
+    summit: {
+      answer: "LACONIC",
+      clues: [
+        "It describes a way of speaking",
+        "The ancient Spartans were famous for it",
+        "Using very few words",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["EYE", "FIRE"], answer: "BALL" },
+      { clues: ["NOTE"], answer: "FOOT" },
+      { clues: ["BLUE"], answer: "PRINT" },
+      { clues: ["BLACK", "TAKE"], answer: "OUT" },
+    ],
+    summit: {
+      answer: "OBFUSCATE",
+      clues: [
+        "Something you can do with information",
+        "Bad instructions often do it by accident",
+        "To deliberately make something unclear",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["TEA", "COFFEE"], answer: "POT" },
+      { clues: ["DOG"], answer: "HOT" },
+      { clues: ["LINE"], answer: "HEAD" },
+      { clues: ["ARM", "WRIST"], answer: "BAND" },
+    ],
+    summit: {
+      answer: "MAGNANIMOUS",
+      clues: [
+        "It describes someone's character",
+        "Good winners often show it",
+        "Generous and forgiving, especially towards a rival",
+      ],
+    },
+  },
+  {
+    pitches: [
+      { clues: ["DOOR", "BLUE"], answer: "BELL" },
+      { clues: ["CODE"], answer: "BAR" },
+      { clues: ["CASTLE"], answer: "SAND" },
+      { clues: ["WALL", "NEWS"], answer: "PAPER" },
+    ],
+    summit: {
+      answer: "PERIPATETIC",
+      clues: [
+        "It describes a lifestyle or habit",
+        "Aristotle's school was named after it",
+        "Travelling from place to place, never settling",
+      ],
+    },
+  },
+];
+
+// Pitches 2 to 4 list only their NEW clues. The carried rope word
+// (the previous answer) is added in front automatically.
+export function buildDay(raw) {
+  const pitches = raw.pitches.map((p, i) => ({
+    clues: i === 0 ? [...p.clues] : [raw.pitches[i - 1].answer, ...p.clues],
+    carried: i === 0 ? null : raw.pitches[i - 1].answer,
+    answer: p.answer,
+    alt: p.alt || [],
+  }));
+  return { pitches, summit: { ...raw.summit, alt: raw.summit.alt || [] } };
+}
