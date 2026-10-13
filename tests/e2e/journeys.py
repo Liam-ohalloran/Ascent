@@ -125,8 +125,11 @@ async def main():
         # 2. Today's climb screen, then begin: the timer starts and the themes run in order.
         p = await open_page(b)
         text = await p.inner_text("#stage")
-        check("ready screen shows today's mountain", "Today's climb" in text and "Kestrel Spire" in text and "Begin climb" in text)
-        check("ready screen lists the five themes in order", all(t in text for t in THEMES) and text.index(THEMES[0]) < text.index(THEMES[4]))
+        check("ready screen shows today's mountain", "Today's climb" in text and "Kestrel Spire" in text and "Start climb" in text)
+        track = await p.inner_text("#track")
+        check("ready screen lists the five zones in order", all(t in track for t in ("Foothills", "Forest", "Ridge", "Storm", "Summit")) and track.index("Foothills") < track.index("Summit"), track)
+        check("main menu shows streak, personal best and the reset countdown",
+              "Streak" in text and "Personal best" in text and re.search(r"Next mountain\s*\d\d:\d\d:\d\d", text) is not None, text)
         check("no word field before the climb begins", await p.locator("#entryForm").is_hidden())
         await p.screenshot(path=OUT / "02-ready.png")
         await begin(p)
@@ -334,7 +337,7 @@ async def main():
         r1 = (await save(p))["results"]["1"]
         await p.clock.run_for(10 * 60_000 + 2_000)
         await p.wait_for_selector("#stage .ready", timeout=8000)
-        check("new mountain appears at Perth midnight without a refresh", "No. 2" in await p.inner_text("#dayLine"))
+        check("new mountain appears at Perth midnight without a refresh", "No. 2" in await p.text_content("#dayLine"))
         check("yesterday's result is untouched", (await save(p))["results"]["1"] == r1)
         await p.screenshot(path=OUT / "09-new-day.png")
         await p.context.close()
@@ -382,7 +385,7 @@ async def main():
         seen = set()
         for tz in ("Australia/Perth", "America/Los_Angeles", "Europe/London", "Pacific/Kiritimati"):
             p = await open_page(b, when="2026-10-13T20:00:00Z", tz=tz)
-            seen.add(re.search(r"No\. \d+", await p.inner_text("#dayLine")).group(0))
+            seen.add(re.search(r"No\. \d+", await p.text_content("#dayLine")).group(0))
             await p.context.close()
         check("every timezone gets the same mountain", seen == {"No. 2"}, seen)
 
@@ -477,7 +480,7 @@ async def main():
         await p.route(re.compile(r"supabase"), lambda r: r.abort())
         await p.add_init_script("localStorage.setItem('ascent', JSON.stringify({version:3,games:{},attempts:{},results:{},seenHelp:true}))")
         await p.goto(URL + "?test"); await p.wait_for_selector("#stage .ready")
-        check("test mode: plain ?test opens tomorrow's mountain", "No. 2" in await p.inner_text("#dayLine"))
+        check("test mode: plain ?test opens tomorrow's mountain", "No. 2" in await p.text_content("#dayLine"))
         check("test mode: says so", "Test mode" in await p.inner_text("#banner"))
         await begin(p); await word(p, "BALL")
         real = await save(p)

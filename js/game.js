@@ -111,7 +111,7 @@ const TEST = (() => {
 
 async function start() {
   setPhase("loading");
-  stage.innerHTML = `<p class="loading">Finding today's mountain…</p>`;
+  stage.innerHTML = `<p class="loading" role="status">Finding today's mountain…</p>`;
   await syncClock();
   if (TEST) {
     store.useTestSave();
@@ -305,6 +305,9 @@ function tickTimer() {
   timerEl.querySelector(".timer-num").textContent = rules.formatClock(left);
   timerEl.classList.toggle("paused", !running);
   timerEl.classList.toggle("low", running && left <= 5);
+  // The bar drains continuously; the number counts whole seconds.
+  const share = running ? Math.max(0, Math.min(1, (deadline() - nowMs()) / (rules.PITCH_SECONDS * 1000))) : 1;
+  timerEl.style.setProperty("--left", share.toFixed(3));
   const key = `${game.current}:${left}`;
   if (running && (left === 10 || left === 5) && lastSpoken !== key) {
     lastSpoken = key;
@@ -390,7 +393,8 @@ function drawClimb(animate) {
 /* ---------- rendering ---------- */
 
 function renderTrack() {
-  fx.setZone(game.done ? (rules.summitReached(game.metres) ? 4 : Math.min(game.current, 4)) : game.current);
+  // During the climb, the zone of the pitch you're on; afterwards, the zone your height reached.
+  fx.setZone(game.done ? rules.THEMES.indexOf(rules.tierFor(game.metres)) : game.current);
   const res = resultsFor(game, puzzle);
   $("#track").innerHTML = [0, 1, 2, 3, 4].map((i) => {
     const s = step(i);
@@ -435,18 +439,23 @@ function render() {
   requestAnimationFrame(() => form.scrollIntoView({ block: "nearest" }));
 }
 
+// The main menu: today's mountain, one action, and your record.
 function renderReady() {
   const s = store.summary(today);
   stage.innerHTML = `
     <section class="ready" aria-labelledby="readyTitle">
-      <p class="ready-kicker">Today's climb</p>
+      <p class="ready-kicker">Today's climb, No. ${n}, ${esc(formatKey(keyForNumber(n)))}</p>
       <h2 id="readyTitle">${esc(puzzle.name)}</h2>
-      <ol class="theme-list">${rules.THEMES.map((t, i) => `<li><span>${i + 1}</span>${t}</li>`).join("")}</ol>
-      <p class="ready-rules">Five pitches, ${rules.PITCH_SECONDS} seconds each, one climb a day. Every real word earns height, and rarer words that fit the clues climb highest. The summit is ${fmt(rules.SUMMIT_HEIGHT)} m.</p>
-      <button class="btn primary begin" type="button" id="beginBtn">Begin climb</button>
-      ${s.streak ? `<p class="ready-streak">You're on a ${s.streak}-day streak.</p>` : ""}
+      <p class="ready-rules">Five pitches, ${rules.PITCH_SECONDS} seconds each. Find one word that links the clues: a synonym, an opposite, a phrase or a compound all count, and rarer links climb higher. The summit is at ${fmt(rules.SUMMIT_HEIGHT)} m.</p>
+      <button class="btn primary begin" type="button" id="beginBtn">Start climb</button>
+      <dl class="register">
+        <div><dt>Streak</dt><dd>${s.streak}<small> day${s.streak === 1 ? "" : "s"}</small></dd></div>
+        <div><dt>Personal best</dt><dd>${s.best ? `${fmt(s.best)}<small> m</small>` : "<small>No climbs yet</small>"}</dd></div>
+        <div><dt>Next mountain</dt><dd><span id="countdown">--:--:--</span></dd></div>
+      </dl>
     </section>`;
   $("#beginBtn").addEventListener("click", beginClimb);
+  startCountdown();
 }
 
 function beginClimb() {
@@ -668,10 +677,11 @@ function resultsHtml(g, p, num, { live = false } = {}) {
   return `
     <section class="result${reached ? " won" : ""}" aria-labelledby="resultTitle">
       <p class="result-kicker">${esc(p.name)}, No. ${num}, ${esc(formatKey(keyForNumber(num)))}</p>
+      <div class="result-meter" aria-hidden="true" style="--pct: ${Math.min(100, (metres / rules.MAX_TOTAL) * 100)}%"><span class="fill"></span><span class="goal"></span></div>
       <h2 class="result-tier" id="resultTitle" tabindex="-1">${reached ? "Summit reached" : `Finished at ${fmt(metres)} m`}</h2>
       <p class="result-sub">${reached ? `${fmt(metres)} m, an exceptional climb.` : `${fmt(rules.SUMMIT_HEIGHT - metres)} m short of the summit. ${rules.tierFor(metres)}.`}
         ${g.endReason === "timeout" ? " Time ran out." : outOfTime ? ` Time ran out on ${outOfTime} pitch${outOfTime === 1 ? "" : "es"}.` : ""}${isBest ? " <strong>New personal best.</strong>" : ""}</p>
-      <dl class="figures">
+      <dl class="figures register">
         <div><dt>Pitches</dt><dd>${pitchesDone}/5</dd></div>
         <div><dt>Time</dt><dd>${rules.formatClock(time)}</dd></div>
         <div><dt>Words</dt><dd>${accepted}</dd></div>
@@ -978,7 +988,7 @@ function renderStats() {
   const s = store.summary(today);
   const recent = s.recent.map((r) => `<li><span>No. ${r.n}</span><span>${esc(formatKey(keyForNumber(r.n)))}</span><strong>${fmt(r.metres)} m${r.summit ? " ★" : ""}</strong></li>`).join("");
   $("#statsBody").innerHTML = `
-    <dl class="figures">
+    <dl class="figures register">
       <div><dt>Streak</dt><dd>${s.streak}</dd></div>
       <div><dt>Longest</dt><dd>${s.longest}</dd></div>
       <div><dt>Summits</dt><dd>${s.summits}</dd></div>

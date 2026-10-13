@@ -124,7 +124,7 @@ Puzzles loop once the list runs out. Each day maps by number, never by load orde
 ```
 npm test            # 90 unit tests, no network
 npm run test:tz     # date tests under Los Angeles and Kiribati device clocks
-npm run test:e2e    # 191 browser checks: the full daily cycle, per-pitch timers, time-outs, refresh, hidden tabs, clock changes, rollover, calendar, layouts 320–1440, light/dark
+npm run test:e2e    # 192 browser checks: the full daily cycle, per-pitch timers, time-outs, refresh, hidden tabs, clock changes, rollover, calendar, layouts 320–1440, light/dark
 ```
 
 The e2e run needs `pip install playwright && python3 -m playwright install chromium`. It freezes the clock and blocks the time sync, so results don't depend on today's date or the network. Screenshots go to `tests/e2e/out/`. Accounts are tested against a stand-in client (`tests/e2e/fake_supabase.js`), and the real Supabase project is blocked during runs.
@@ -133,4 +133,4 @@ The e2e run needs `pip install playwright && python3 -m playwright install chrom
 
 Pushing to `main` deploys both GitHub Pages (static files) and Vercel (static files plus `api/score.js`). The GitHub Pages site calls the function on the Vercel production URL. Vercel deployments call their own `/api/score`. Supabase is project `smkxqwgikxpiaptyszrd` (Sydney). Its publishable key is in `js/account.js` by design, and row-level security protects the data. Its Auth settings must list both sites as redirect URLs. No secrets exist in the repo: the function authenticates to AI Gateway with Vercel's OIDC token.
 
-**Design:** [Figma file](https://www.figma.com/design/tIzXwD9WkiC6m9KrQ1w3i5) (earlier glacier palette, layout still current).
+**Design:** one token system in `css/style.css` (colour, type scale, spacing, radius tiers). The mountain panel is the one loud element: its sky, rock and weather change through the five zones (warm foothills light, forest, falling snow on the ridge, rain on the storm wall, a clear summit), in light and dark. The main action on each screen uses the rope colour; everything else is outlined. Earlier [Figma file](https://www.figma.com/design/tIzXwD9WkiC6m9KrQ1w3i5) (earlier glacier palette, layout still current).
