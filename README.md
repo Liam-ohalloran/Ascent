@@ -2,7 +2,7 @@
 
 A daily word climb. One mountain a day, the same for everyone.
 
-**Play:** https://liam-ohalloran.github.io/ascent/
+**Play:** https://liam-ohalloran.github.io/Ascent/
 
 ## How it works
 
